@@ -5,3 +5,7 @@ __pycache__
 CLAUDE.md
 .claude/
 CONTRIBUTING.md
+*.db
+*.sqlite3
+*.db-journal
+local.db

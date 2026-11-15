@@ -49,7 +49,7 @@ Importante:
 - Antes de cada `git push`, este comando no debe devolver nada:
 
   ```powershell
-  git grep -i "postgresql://"
+  git grep -i -E "postgres(ql)?:[/]{2}"
   ```
 
 - Solo una persona etiqueta versiones (`vX.Y.Z`), construye la imagen y despliega. Así cada imagen corresponde a un commit concreto.

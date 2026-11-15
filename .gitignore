@@ -7,3 +7,7 @@ __pycache__/
 db.sqlite3
 CLAUDE.md
 .claude/
+*.db
+*.sqlite3
+*.db-journal
+local.db
