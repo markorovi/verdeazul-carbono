@@ -14,15 +14,31 @@ import os
 from pathlib import Path
 
 import dj_database_url
+from django.core.exceptions import ImproperlyConfigured
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
+# Entorno de ejecución. Sin la variable ENTORNO se asume producción (estricto).
+ENTORNOS_VALIDOS = ("produccion", "local")
+ENTORNO = os.environ.get("ENTORNO", "produccion")
+if ENTORNO not in ENTORNOS_VALIDOS:
+    raise ImproperlyConfigured(
+        f"ENTORNO={ENTORNO!r} no es válido; use 'produccion' o 'local'."
+    )
+
+EN_LOCAL = ENTORNO == "local"
+
+# Cloud Run siempre define K_SERVICE: el modo local nunca puede activarse allí.
+if EN_LOCAL and "K_SERVICE" in os.environ:
+    raise ImproperlyConfigured("ENTORNO=local no está permitido en Cloud Run")
+
+
 # Secretos: llegan solo por variables de entorno (Secret Manager en Cloud Run).
 SECRET_KEY = os.environ["SECRET_KEY"]
 
-DEBUG = False
+DEBUG = EN_LOCAL
 
 ALLOWED_HOSTS = [".run.app", "localhost", "127.0.0.1"]
 
@@ -30,10 +46,10 @@ CSRF_TRUSTED_ORIGINS = ["https://*.run.app"]
 
 # Cloud Run termina TLS en el proxy y reenvía X-Forwarded-Proto.
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
-SECURE_SSL_REDIRECT = True
-SESSION_COOKIE_SECURE = True
-CSRF_COOKIE_SECURE = True
-SECURE_HSTS_SECONDS = 31536000
+SECURE_SSL_REDIRECT = not EN_LOCAL
+SESSION_COOKIE_SECURE = not EN_LOCAL
+CSRF_COOKIE_SECURE = not EN_LOCAL
+SECURE_HSTS_SECONDS = 0 if EN_LOCAL else 31536000
 
 
 # Application definition

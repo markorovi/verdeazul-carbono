@@ -4,10 +4,11 @@ from django.urls import path
 
 
 def inicio(request):
+    # Comprueba la conexión sin revelar la versión del servidor de base de datos.
     with connection.cursor() as cursor:
-        cursor.execute("select version()")
-        version = cursor.fetchone()[0]
-    return JsonResponse({"estado": "ok", "base_de_datos": version[:40]})
+        cursor.execute("select 1")
+        cursor.fetchone()
+    return JsonResponse({"estado": "ok", "base_de_datos": "conectada"})
 
 
 urlpatterns = [
