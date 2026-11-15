@@ -5,3 +5,5 @@ __pycache__/
 *.pem
 *.key
 db.sqlite3
+CLAUDE.md
+.claude/
