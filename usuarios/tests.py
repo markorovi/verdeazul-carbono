@@ -9,9 +9,18 @@ from unittest import mock
 from django.conf import settings
 from django.contrib.auth.hashers import check_password, make_password
 from django.core.exceptions import ImproperlyConfigured
+from django.core.management.base import CommandError
 from django.test import SimpleTestCase
 
 from usuarios import cifrado, totp
+from usuarios.autenticacion import _hash_ficticio
+from usuarios.management.commands.crear_cuentas_prueba import (
+    DOMINIO_POR_DEFECTO,
+    cuentas_para,
+    validar_dominio,
+)
+
+PREFIJO_ARGON2ID = "argon2$argon2id$v=19$m=19456,t=2,p=1$"
 
 SECRETO_RFC = base64.b32encode(b"12345678901234567890").decode("ascii")
 VECTORES_RFC_SHA1 = [
@@ -111,6 +120,29 @@ class HasherTests(SimpleTestCase):
     def test_formato_y_verificacion(self):
         contrasena = secrets.token_urlsafe(16)
         hash_generado = make_password(contrasena)
-        self.assertTrue(hash_generado.startswith("argon2$argon2id$v=19$m=19456,t=2,p=1$"))
+        self.assertTrue(hash_generado.startswith(PREFIJO_ARGON2ID))
         self.assertTrue(check_password(contrasena, hash_generado))
         self.assertFalse(check_password(contrasena + "x", hash_generado))
+
+    def test_hash_ficticio_calculado_al_arrancar(self):
+        self.assertEqual(_hash_ficticio.cache_info().currsize, 1)
+        self.assertTrue(_hash_ficticio().startswith(PREFIJO_ARGON2ID))
+
+
+class DominioCuentasPruebaTests(SimpleTestCase):
+    def test_dominios_validos(self):
+        for dominio in (DOMINIO_POR_DEFECTO, "autoprueba.test", "a-b.c1.test"):
+            with self.subTest(dominio=dominio):
+                self.assertEqual(validar_dominio(dominio), dominio)
+
+    def test_dominios_invalidos(self):
+        for dominio in ("", "Verdeazul.test", "a@b.test", "con espacio.test", "sinpunto", "-a.test", "a..test"):
+            with self.subTest(dominio=dominio):
+                with self.assertRaises(CommandError):
+                    validar_dominio(dominio)
+
+    def test_correos_con_el_dominio(self):
+        cuentas = cuentas_para("autoprueba.test")
+        self.assertEqual(len(cuentas), 7)
+        self.assertEqual([rol for _, rol in cuentas], ["R1", "R2", "R3", "R4", "R5", "R6", "R7"])
+        self.assertTrue(all(correo.endswith("@autoprueba.test") for correo, _ in cuentas))

@@ -5,7 +5,10 @@ Uso (en una sesión con el entorno cargado, sin switches):
     . .\\scripts\\entorno_dev.ps1
     python scripts/probar_autenticacion.py
 
-Todo corre dentro de una transacción que siempre se revierte: no quedan cuentas ni sesiones.
+Todo corre dentro de una transacción que siempre se revierte: no quedan cuentas ni sesiones, y al
+final los conteos de usuarios, sesiones y roles asignados deben ser iguales a los iniciales.
+Las cuentas propias usan el dominio autoprueba.test; las 7 cuentas de prueba del dominio por
+defecto se siembran dentro de la transacción para comprobar que las pruebas conviven con ellas.
 Nunca imprime contraseñas, códigos, secretos ni la salida del comando crear_cuentas_prueba.
 """
 
@@ -41,12 +44,17 @@ from django.test import Client  # noqa: E402
 from django.utils import timezone  # noqa: E402
 
 from usuarios import autenticacion, cifrado, totp  # noqa: E402
-from usuarios.management.commands.crear_cuentas_prueba import CUENTAS  # noqa: E402
+from usuarios.management.commands.crear_cuentas_prueba import (  # noqa: E402
+    DOMINIO_POR_DEFECTO,
+    cuentas_para,
+)
 from usuarios.models import RolUsuario, Usuario  # noqa: E402
 from usuarios.views import MENSAJE_FALLO  # noqa: E402
 
 HOST = "localhost"
-DOMINIO = "prueba.test"
+# Dominio exclusivo de este script; las cuentas reales de prueba usan DOMINIO_POR_DEFECTO.
+DOMINIO = "autoprueba.test"
+CANTIDAD_CUENTAS = len(cuentas_para(DOMINIO))
 URL_ACCESO = "/acceso/"
 URL_SEGUNDO_FACTOR = "/acceso/segundo-factor/"
 URL_CUENTA = "/cuenta/"
@@ -379,47 +387,90 @@ def prueba_columnas_app_rw():
     return ok, f"rol={rol}; columnas nuevas {nuevas}; correo {correo}; usuarios_rol {otra_tabla}"
 
 
-def cuentas_del_comando() -> dict[str, list[str]]:
-    correos = [correo for correo, _ in CUENTAS]
+def ejecutar_comando(dominio: str) -> str:
+    """Ejecuta crear_cuentas_prueba y devuelve su salida en memoria (nunca se imprime)."""
+    salida = io.StringIO()
+    call_command("crear_cuentas_prueba", dominio=dominio, stdout=salida)
+    texto = salida.getvalue()
+    salida.close()
+    return texto
+
+
+def filas_de_credenciales(salida: str) -> list[tuple[str, str, str]]:
+    """(correo, contraseña, secreto) de cada fila de la salida; los valores se marcan como sensibles."""
+    filas = []
+    for linea in salida.splitlines():
+        if "otpauth://" not in linea:
+            continue
+        correo, _, contrasena, secreto, _ = (parte.strip() for parte in linea.split(" | "))
+        SENSIBLES.update((contrasena, secreto))
+        filas.append((correo, contrasena, secreto))
+    return filas
+
+
+def cuentas_del_comando(dominio: str) -> dict[str, list[str]]:
+    correos = [correo for correo, _ in cuentas_para(dominio)]
     vigentes = {}
     for asignacion in RolUsuario.objects.filter(usuario__correo__in=correos, hasta__isnull=True):
         vigentes.setdefault(asignacion.usuario_id, []).append(asignacion.rol_id)
     return {u.correo: vigentes.get(u.pk, []) for u in Usuario.objects.filter(correo__in=correos)}
 
 
-def credenciales_validas(salida: str) -> bool:
-    """Comprueba en memoria que cada fila de la salida corresponde a su cuenta. No imprime nada."""
-    filas = [linea for linea in salida.splitlines() if "otpauth://" in linea]
-    for fila in filas:
-        correo, _, contrasena, secreto, _ = (parte.strip() for parte in fila.split(" | "))
-        SENSIBLES.update((contrasena, secreto))
+def credenciales_validas(filas: list[tuple[str, str, str]]) -> bool:
+    """Comprueba en memoria que cada fila corresponde a su cuenta. No imprime nada."""
+    for correo, contrasena, secreto in filas:
         usuario = Usuario.objects.get(correo=correo)
         if not check_password(contrasena, usuario.password):
             return False
         if cifrado.descifrar(usuario.totp_secreto_cifrado, usuario.pk) != secreto:
             return False
-    return len(filas) == len(CUENTAS)
+    return True
 
 
 def prueba_comando():
-    previas = len(cuentas_del_comando())
-    primera = io.StringIO()
-    call_command("crear_cuentas_prueba", stdout=primera)
-    creadas = cuentas_del_comando()
-    un_rol_cada_una = all(creadas.get(correo) == [rol] for correo, rol in CUENTAS)
-    filas = sum("otpauth://" in linea for linea in primera.getvalue().splitlines())
-    validas = credenciales_validas(primera.getvalue())
-    segunda = io.StringIO()
-    call_command("crear_cuentas_prueba", stdout=segunda)
-    sin_cambios = len(cuentas_del_comando()) == len(CUENTAS)
-    ya_existen = sum("ya existe" in linea for linea in segunda.getvalue().splitlines())
-    primera.close()
-    segunda.close()
-    ok = previas == 0 and len(creadas) == 7 and un_rol_cada_una and filas == 7 and validas and sin_cambios and ya_existen == 7
-    return ok, (
-        f"previas={previas}, creadas={len(creadas)}, un rol vigente cada una={un_rol_cada_una},"
-        f" filas={filas}, credenciales válidas={validas}, 2.a ejecución sin cambios={sin_cambios}"
+    previas = cuentas_del_comando(DOMINIO)
+    filas = filas_de_credenciales(ejecutar_comando(DOMINIO))
+    creadas = cuentas_del_comando(DOMINIO)
+    un_rol_cada_una = all(creadas.get(correo) == [rol] for correo, rol in cuentas_para(DOMINIO))
+    nuevas_esperadas = CANTIDAD_CUENTAS - len(previas)
+    validas = credenciales_validas(filas)
+    segunda = ejecutar_comando(DOMINIO)
+    sin_cambios = cuentas_del_comando(DOMINIO) == creadas
+    ya_existen = sum("ya existe" in linea for linea in segunda.splitlines())
+    ok = (
+        len(creadas) == CANTIDAD_CUENTAS
+        and un_rol_cada_una
+        and len(filas) == nuevas_esperadas
+        and validas
+        and sin_cambios
+        and ya_existen == CANTIDAD_CUENTAS
     )
+    return ok, (
+        f"previas={len(previas)}, cuentas={len(creadas)}, un rol vigente cada una={un_rol_cada_una},"
+        f" filas={len(filas)}, credenciales válidas={validas}, 2.a ejecución sin cambios={sin_cambios}"
+    )
+
+
+def estado_de_cuentas(dominio: str) -> dict[str, tuple]:
+    """Intentos fallidos y bloqueo de cada cuenta de prueba del dominio."""
+    correos = [correo for correo, _ in cuentas_para(dominio)]
+    return {
+        u.correo: (u.intentos_fallidos, u.bloqueado_hasta)
+        for u in Usuario.objects.filter(correo__in=correos)
+    }
+
+
+def sembrar_cuentas_existentes() -> dict[str, tuple]:
+    """Siembra (o encuentra) las 7 cuentas del dominio por defecto y guarda su estado."""
+    filas_de_credenciales(ejecutar_comando(DOMINIO_POR_DEFECTO))
+    return estado_de_cuentas(DOMINIO_POR_DEFECTO)
+
+
+def prueba_convivencia(estado_inicial: dict[str, tuple]):
+    estado_final = estado_de_cuentas(DOMINIO_POR_DEFECTO)
+    existen = len(estado_final) == CANTIDAD_CUENTAS
+    intactas = estado_final == estado_inicial
+    return existen and intactas, f"cuentas sembradas={len(estado_final)}, sin alterar={intactas}"
 
 
 # --------------------------------------------------------------------------- ejecución
@@ -444,6 +495,11 @@ def correr(id_: str, descripcion: str, esperado: str, funcion: Callable) -> Resu
 
 
 def ejecutar_pruebas(captura: CapturaRegistro) -> list[Resultado]:
+    try:
+        with transaction.atomic():
+            estado_sembrado = sembrar_cuentas_existentes()
+    except Exception:  # T22 quedará en FALLA
+        estado_sembrado = None
     resultados = [
         correr("T01", "Contraseña y código correctos inician sesión; la clave de sesión cambia",
                "302/302/200, clave cambia", prueba_inicio_correcto),
@@ -490,13 +546,19 @@ def ejecutar_pruebas(captura: CapturaRegistro) -> list[Resultado]:
         correr("T19", "app_rw: columnas nuevas sí; correo y otra tabla no",
                "pasa, falla 42501, falla 42501", prueba_columnas_app_rw),
         correr("T20", "Comando crear_cuentas_prueba (salida en memoria, no se imprime)",
-               "7 cuentas, 1 rol c/u, 7 filas, idempotente", prueba_comando),
+               "7 cuentas, 1 rol c/u, 1 fila por cuenta nueva, idempotente", prueba_comando),
     ]
     con_secretos = [m for m in captura.mensajes if any(s in m for s in SENSIBLES)]
     resultados.append(
         Resultado("T21", "El registro de eventos no contiene contraseñas, códigos, secretos ni correos inexistentes",
                   "0 mensajes con datos sensibles", f"{len(con_secretos)} de {len(captura.mensajes)}",
                   not con_secretos and len(captura.mensajes) > 0)
+    )
+    resultados.append(
+        correr("T22", "Las pruebas conviven con cuentas existentes",
+               "7 cuentas sembradas, sin alterar",
+               lambda: prueba_convivencia(estado_sembrado) if estado_sembrado is not None
+               else (False, "no se pudieron sembrar"))
     )
     return resultados
 
@@ -511,8 +573,12 @@ def imprimir_tabla(resultados: list[Resultado]) -> None:
         print(" | ".join(v.ljust(anchos[i]) for i, v in enumerate(fila)))
 
 
-def quedaron_datos() -> bool:
-    return Usuario.objects.filter(correo__endswith=".test").exists()
+def conteos() -> dict[str, int]:
+    return {
+        "usuarios": Usuario.objects.count(),
+        "sesiones": Session.objects.count(),
+        "rolusuario": RolUsuario.objects.count(),
+    }
 
 
 def main() -> int:
@@ -522,6 +588,7 @@ def main() -> int:
     captura = CapturaRegistro()
     registro.addHandler(captura)
     registro.propagate = False
+    iniciales = conteos()
     with transaction.atomic():
         try:
             resultados = ejecutar_pruebas(captura)
@@ -530,7 +597,9 @@ def main() -> int:
     imprimir_tabla(resultados)
     correctas = sum(r.ok for r in resultados)
     print(f"\nTotal: {correctas}/{len(resultados)} OK")
-    limpio = not quedaron_datos()
+    finales = conteos()
+    limpio = finales == iniciales
+    print(f"Conteos antes: {iniciales}; después: {finales}")
     print("[OK] No quedaron datos de prueba." if limpio else "[FALLO] Quedaron datos de prueba.")
     return 0 if correctas == len(resultados) and limpio else 1
 

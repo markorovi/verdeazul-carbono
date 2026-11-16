@@ -1,5 +1,6 @@
 """Crea una cuenta de prueba por rol (R1 a R7) y muestra sus credenciales una sola vez."""
 
+import re
 import secrets
 import string
 import uuid
@@ -7,21 +8,24 @@ import uuid
 from django.contrib.auth.hashers import make_password
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
 from usuarios import cifrado, totp
 from usuarios.models import RolUsuario, Usuario
 
+DOMINIO_POR_DEFECTO = "verdeazul.test"
 CUENTAS = [
-    ("r1.tecnico@verdeazul.test", "R1"),
-    ("r2.verificador@verdeazul.test", "R2"),
-    ("r3.catalogo@verdeazul.test", "R3"),
-    ("r4.cuentas@verdeazul.test", "R4"),
-    ("r5.auditor@verdeazul.test", "R5"),
-    ("r6.dueno@verdeazul.test", "R6"),
-    ("r7.certificacion@verdeazul.test", "R7"),
+    ("r1.tecnico", "R1"),
+    ("r2.verificador", "R2"),
+    ("r3.catalogo", "R3"),
+    ("r4.cuentas", "R4"),
+    ("r5.auditor", "R5"),
+    ("r6.dueno", "R6"),
+    ("r7.certificacion", "R7"),
 ]
+# Etiquetas de letras minúsculas, números y guiones (sin guion al inicio ni al final), separadas por puntos.
+PATRON_DOMINIO = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+")
 LONGITUD_CONTRASENA = 20
 ALFABETO = string.ascii_letters + string.digits + "-_.!@#%+="
 INTENTOS_GENERACION = 50
@@ -39,13 +43,35 @@ def generar_contrasena(usuario: Usuario) -> str:
     raise RuntimeError("No se pudo generar una contraseña que cumpla la política.")
 
 
+def validar_dominio(dominio: str) -> str:
+    if len(dominio) > 253 or not PATRON_DOMINIO.fullmatch(dominio):
+        raise CommandError(
+            "Dominio inválido: use solo letras minúsculas, números, guiones y puntos"
+            " (por ejemplo verdeazul.test), sin arroba ni espacios."
+        )
+    return dominio
+
+
+def cuentas_para(dominio: str) -> list[tuple[str, str]]:
+    """Pares (correo, rol) de las 7 cuentas de prueba con el dominio dado."""
+    return [(f"{local}@{dominio}", rol) for local, rol in CUENTAS]
+
+
 class Command(BaseCommand):
     help = "Crea las 7 cuentas de prueba (una por rol) y muestra sus credenciales una sola vez."
 
+    def add_arguments(self, parser):
+        parser.add_argument(
+            "--dominio",
+            default=DOMINIO_POR_DEFECTO,
+            help=f"Dominio de los correos (por defecto {DOMINIO_POR_DEFECTO}).",
+        )
+
     def handle(self, *args, **options):
+        dominio = validar_dominio(options["dominio"])
         creadas = []
         with transaction.atomic():
-            for correo, rol in CUENTAS:
+            for correo, rol in cuentas_para(dominio):
                 if Usuario.objects.filter(correo=correo).exists():
                     self.stdout.write(f"{correo}: ya existe; no se modifica.")
                     continue

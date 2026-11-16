@@ -86,7 +86,9 @@ Filtro de reportes de error, TOTP, cifrado y hasher (no usan la base de datos; b
 python manage.py test config usuarios
 ```
 
-Cuentas de prueba: `python manage.py crear_cuentas_prueba` crea una cuenta por rol (R1 a R7) en la base de dev y muestra **una sola vez** su contraseña y su secreto TOTP. Guárdelos en un gestor de contraseñas; nunca en el repositorio ni en chats. Si las cuentas ya existen, el comando no las modifica.
+Cuentas de prueba: `python manage.py crear_cuentas_prueba` crea una cuenta por rol (R1 a R7) en la base de dev, con correos del dominio `verdeazul.test` (otro dominio con `--dominio`, por ejemplo `--dominio equipo.test`), y muestra **una sola vez** su contraseña y su secreto TOTP. Guárdelos en un gestor de contraseñas; nunca en el repositorio ni en chats. Si las cuentas ya existen, el comando no las modifica.
+
+Las pruebas automáticas crean sus propias cuentas con el dominio `autoprueba.test` y conviven con las cuentas de prueba reales: no las modifican y al terminar dejan los mismos conteos que había al empezar.
 
 Importante:
 
