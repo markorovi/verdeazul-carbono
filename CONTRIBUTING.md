@@ -42,7 +42,7 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 | `. .\scripts\entorno_dev.ps1 -Migrador` | rol `migrador` | aplicar migraciones |
 | `. .\scripts\entorno_dev.ps1 -Pruebas` | rol `app_rw`, además `DATABASE_URL_APP` y `DATABASE_URL_MIGRADOR` | pruebas de base de datos |
 
-En todos los casos define también `ENTORNO=local`, una `SECRET_KEY` fija de desarrollo y `DATABASE_URL_BITACORA`. Si algún secreto no se puede leer, no modifica ninguna variable.
+En todos los casos define también `ENTORNO=local`, una `SECRET_KEY` fija de desarrollo, `DATABASE_URL_BITACORA` y `CLAVE_TOTP` (la clave que cifra los secretos TOTP, leída del secreto `DEV_CLAVE_TOTP`). Si algún secreto no se puede leer, no modifica ninguna variable.
 
 Ejecutar la aplicación:
 
@@ -73,11 +73,20 @@ python scripts/probar_bd.py
 
 Debe terminar con todas las pruebas en OK.
 
-Filtro de reportes de error (no usa la base de datos; basta con tener el entorno cargado):
+Autenticación (contraseña Argon2id y segundo factor TOTP), con el entorno cargado sin switches; corre dentro de una transacción que se revierte, así que no deja cuentas ni sesiones:
 
 ```powershell
-python manage.py test config
+. .\scripts\entorno_dev.ps1
+python scripts/probar_autenticacion.py
 ```
+
+Filtro de reportes de error, TOTP, cifrado y hasher (no usan la base de datos; basta con tener el entorno cargado):
+
+```powershell
+python manage.py test config usuarios
+```
+
+Cuentas de prueba: `python manage.py crear_cuentas_prueba` crea una cuenta por rol (R1 a R7) en la base de dev y muestra **una sola vez** su contraseña y su secreto TOTP. Guárdelos en un gestor de contraseñas; nunca en el repositorio ni en chats. Si las cuentas ya existen, el comando no las modifica.
 
 Importante:
 
