@@ -51,17 +51,24 @@ SESSION_COOKIE_SECURE = not EN_LOCAL
 CSRF_COOKIE_SECURE = not EN_LOCAL
 SECURE_HSTS_SECONDS = 0 if EN_LOCAL else 31536000
 
+# Oculta en los reportes de error cualquier valor cuyo nombre contenga DATABASE (p. ej. DATABASE_URL).
+DEFAULT_EXCEPTION_REPORTER_FILTER = "config.seguridad.FiltroReporteSeguro"
+
 
 # Application definition
 
 INSTALLED_APPS = [
-    'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'usuarios',
+    'catalogo',
+    'mediciones',
 ]
+
+AUTH_USER_MODEL = "usuarios.Usuario"
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
