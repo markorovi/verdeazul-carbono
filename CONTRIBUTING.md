@@ -73,6 +73,15 @@ python scripts/probar_bd.py
 
 Debe terminar con todas las pruebas en OK.
 
+Mediciones, certificados y enmiendas (reglas H1 y H3, inmutabilidad y RLS), con el mismo entorno:
+
+```powershell
+. .\scripts\entorno_dev.ps1 -Pruebas
+python scripts/probar_mediciones.py
+```
+
+Las tablas de mediciones son inmutables (la base rechaza DELETE y TRUNCATE, y las versiones y aprobaciones tampoco admiten UPDATE), así que nada que se confirme ahí se puede limpiar después. Las pruebas nunca confirman datos: cada una corre en una transacción que se revierte y al final se comparan los conteos con los iniciales.
+
 Autenticación (contraseña Argon2id y segundo factor TOTP), con el entorno cargado sin switches; corre dentro de una transacción que se revierte, así que no deja cuentas ni sesiones:
 
 ```powershell
