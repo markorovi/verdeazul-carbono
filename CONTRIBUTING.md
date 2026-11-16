@@ -5,9 +5,18 @@ Guía para trabajar en local sin debilitar la seguridad de producción.
 ## Requisitos
 
 - Git.
-- Python 3.12 o superior. Lo ideal es 3.15, la misma versión del contenedor.
+- Python 3.13 o superior. Lo ideal es 3.15, la misma versión del contenedor.
 
 ## Puesta en marcha local (PowerShell)
+
+Las migraciones usan SQL propio de PostgreSQL con PostGIS, así que el desarrollo local trabaja contra la rama dev de Neon. No hay modo con SQLite.
+
+Antes de empezar necesita:
+
+- Python 3.13 o superior y un entorno virtual del proyecto.
+- Google Cloud SDK (`gcloud`) con sesión iniciada (`gcloud auth login`) y permiso de lectura sobre los secretos `DEV_` del proyecto `verdeazul-p2`. Ese acceso se pide al dueño del proyecto. Si `gcloud` no está en el PATH, los scripts de `scripts/` lo localizan solos.
+
+Instalación:
 
 ```powershell
 git clone https://github.com/markorovi/verdeazul-carbono
@@ -23,23 +32,59 @@ Si `Activate.ps1` da un error de ejecución de scripts, ejecute una sola vez:
 Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 ```
 
-Defina las variables de entorno **solo para la sesión actual** (desaparecen al cerrar la terminal) y arranque el servidor:
+### Cargar el entorno
+
+`scripts/entorno_dev.ps1` lee las cadenas de conexión de Secret Manager y las deja como variables de entorno **solo en la sesión actual**, sin mostrarlas. Se ejecuta con un punto al inicio para que las variables queden en la sesión:
+
+| Comando | `DATABASE_URL` | Para qué |
+| --- | --- | --- |
+| `. .\scripts\entorno_dev.ps1` | rol `app_rw` | ejecutar la aplicación |
+| `. .\scripts\entorno_dev.ps1 -Migrador` | rol `migrador` | aplicar migraciones |
+| `. .\scripts\entorno_dev.ps1 -Pruebas` | rol `app_rw`, además `DATABASE_URL_APP` y `DATABASE_URL_MIGRADOR` | pruebas de base de datos |
+
+En todos los casos define también `ENTORNO=local`, una `SECRET_KEY` fija de desarrollo y `DATABASE_URL_BITACORA`. Si algún secreto no se puede leer, no modifica ninguna variable.
+
+Ejecutar la aplicación:
 
 ```powershell
-$env:ENTORNO = "local"
-$env:SECRET_KEY = "clave-local-de-desarrollo"
-$env:DATABASE_URL = "sqlite:///local.db"
-
-python manage.py migrate
+. .\scripts\entorno_dev.ps1
 python manage.py runserver
 ```
 
 Abra http://127.0.0.1:8000/.
 
+Aplicar migraciones (solo con `migrador`; `app_rw` no puede crear tablas):
+
+```powershell
+. .\scripts\entorno_dev.ps1 -Migrador
+python manage.py migrate
+```
+
+Después de migrar, vuelva a cargar el entorno sin `-Migrador` antes de ejecutar la aplicación.
+
+### Pruebas
+
+Reglas y permisos de la base de datos (exclusión de roles, traslape de parcelas, períodos, accesos de emergencia y privilegios de `app_rw`):
+
+```powershell
+. .\scripts\entorno_dev.ps1 -Pruebas
+python scripts/probar_bd.py
+```
+
+Debe terminar con todas las pruebas en OK.
+
+Filtro de reportes de error (no usa la base de datos; basta con tener el entorno cargado):
+
+```powershell
+python manage.py test config
+```
+
 Importante:
 
-- **Nunca** use en local los valores de producción (la `SECRET_KEY` o la `DATABASE_URL` de Secret Manager).
+- La base de dev es **compartida** por todo el equipo. Las pruebas de `scripts/probar_bd.py` corren cada una en una transacción que siempre se revierte, así que no dejan datos; no cree datos de prueba a mano.
+- **Nunca** use en local los valores de producción. `entorno_dev.ps1` solo lee los secretos `DEV_`.
 - `ENTORNO=local` desactiva HTTPS obligatorio, cookies `Secure` y HSTS, y activa `DEBUG`. Por eso está **prohibido en Cloud Run**: si se detecta la variable `K_SERVICE`, el código se niega a arrancar.
+- Con `DEBUG` activo, las páginas de error ocultan cualquier variable cuyo nombre contenga `DATABASE`, `KEY`, `SECRET` o `PASS`; aun así, no comparta capturas de esas páginas.
 - Si `ENTORNO` no está definida, se asume `produccion`, con todas las protecciones activas.
 
 ## Reglas del equipo
