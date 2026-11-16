@@ -42,6 +42,9 @@ ESQUEMAS_URL = ("postgresql", "postgres")
 SSLMODES_ACEPTADOS = ("require", "verify-ca", "verify-full")
 TIEMPO_CONEXION = 15
 REINTENTOS_CONEXION = 3
+ESPERA_REINTENTO = 3
+CONFIRMACION_PRODUCCION = "PRODUCCION"
+RAMAS_NEON = {"dev": "dev", "prod": "production"}
 
 SECRETOS = {
     "dev": {
@@ -64,7 +67,7 @@ GCLOUD_RESPALDO = (
     r"C:\Users\Marco Rodríguez\AppData\Local\Google\Cloud SDK\google-cloud-sdk\bin\gcloud.cmd"
 )
 
-MARCAS = {"ok": "✔", "aviso": "⚠", "fallo": "✘"}
+ETIQUETAS_ESTADO = {"ok": "[OK]", "aviso": "[AVISO]", "fallo": "[FALLO]"}
 
 
 # --------------------------------------------------------------------------- redacción
@@ -98,13 +101,15 @@ class Abortar(Exception):
 
 
 class Resumen:
+    """Acumula el resultado de cada paso y lo imprime al momento y al final."""
+
     def __init__(self) -> None:
         self.pasos: list[tuple[str, str]] = []
 
     def _anotar(self, estado: str, texto: str) -> None:
         texto = redactar(texto)
         self.pasos.append((estado, texto))
-        print(f"  {MARCAS[estado]} {texto}")
+        print(f"  {ETIQUETAS_ESTADO[estado]} {texto}")
 
     def ok(self, texto: str) -> None:
         self._anotar("ok", texto)
@@ -122,8 +127,8 @@ class Resumen:
     def imprimir(self) -> None:
         titulo("RESUMEN")
         for estado, texto in self.pasos:
-            print(f"  {MARCAS[estado]} {texto}")
-        total = {e: sum(1 for s, _ in self.pasos if s == e) for e in MARCAS}
+            print(f"  {ETIQUETAS_ESTADO[estado]} {texto}")
+        total = {e: sum(1 for s, _ in self.pasos if s == e) for e in ETIQUETAS_ESTADO}
         print(
             f"\n  {total['ok']} correctos, {total['aviso']} avisos, {total['fallo']} fallos."
         )
@@ -134,7 +139,7 @@ def titulo(texto: str) -> None:
 
 
 def configurar_salida() -> None:
-    # Evita que un símbolo (✔/✘) no representable en la consola haga fallar el script.
+    """Evita que un carácter no representable en la consola haga fallar el script."""
     for flujo in (sys.stdout, sys.stderr):
         try:
             flujo.reconfigure(errors="replace")
@@ -221,7 +226,7 @@ def conectar(cadena: str, autocommit: bool = True) -> psycopg.Connection:
         except psycopg.OperationalError as error:
             ultimo = error
             if intento < REINTENTOS_CONEXION:
-                time.sleep(3)
+                time.sleep(ESPERA_REINTENTO)
     raise Abortar(f"No se pudo conectar: {redactar(ultimo)}")
 
 
@@ -238,6 +243,7 @@ def existe_relacion(conn: psycopg.Connection, esquema: str, nombre: str) -> bool
 
 
 def asegurar_rol(conn: psycopg.Connection, rol: str, clave: str, resumen: Resumen) -> None:
+    """Crea el rol o, si ya existe, reaplica sus atributos y rota la contraseña."""
     existe = conn.execute("select 1 from pg_roles where rolname = %s", (rol,)).fetchone() is not None
     verbo = sql.SQL("ALTER ROLE") if existe else sql.SQL("CREATE ROLE")
     conn.execute(
@@ -260,21 +266,34 @@ def info_conexion(conn: psycopg.Connection, resumen: Resumen) -> str:
     return base
 
 
-def conceder_connect(conn: psycopg.Connection, base: str, roles: tuple[str, ...]) -> None:
+def conceder_connect(
+    conn: psycopg.Connection, base: str, roles: tuple[str, ...], resumen: Resumen
+) -> None:
     for rol in roles:
         conn.execute(
             sql.SQL("GRANT CONNECT ON DATABASE {} TO {}").format(
                 sql.Identifier(base), sql.Identifier(rol)
             )
         )
+    resumen.ok(f"GRANT CONNECT ON DATABASE {base} a {' y '.join(roles)}")
 
 
-def configurar_negocio(
-    conn: psycopg.Connection, claves: dict[str, str], resumen: Resumen
+def revocar_create_publico(conn: psycopg.Connection, resumen: Resumen) -> None:
+    conn.execute("REVOKE CREATE ON SCHEMA public FROM PUBLIC")
+    resumen.ok("REVOKE CREATE ON SCHEMA public FROM PUBLIC")
+
+
+def conceder_esquema_public(
+    conn: psycopg.Connection, privilegios: str, rol: str, resumen: Resumen
 ) -> None:
-    titulo("BASE DE NEGOCIO")
-    base = info_conexion(conn, resumen)
+    """privilegios es una constante del script ("USAGE" o "USAGE, CREATE"), nunca un dato externo."""
+    conn.execute(
+        sql.SQL("GRANT {} ON SCHEMA public TO {}").format(sql.SQL(privilegios), sql.Identifier(rol))
+    )
+    resumen.ok(f"GRANT {privilegios} ON SCHEMA public a {rol}")
 
+
+def habilitar_postgis(conn: psycopg.Connection, resumen: Resumen) -> None:
     try:
         conn.execute("CREATE EXTENSION IF NOT EXISTS postgis")
         version = conn.execute("select postgis_version()").fetchone()[0]
@@ -282,22 +301,8 @@ def configurar_negocio(
     except psycopg.Error as error:
         resumen.aviso(f"PostGIS no se pudo habilitar (se continúa): {error}")
 
-    for rol in ROLES_NEGOCIO:
-        asegurar_rol(conn, rol, claves[rol], resumen)
 
-    conceder_connect(conn, base, ROLES_NEGOCIO)
-    resumen.ok(f"GRANT CONNECT ON DATABASE {base} a migrador y app_rw")
-
-    conn.execute("REVOKE CREATE ON SCHEMA public FROM PUBLIC")
-    resumen.ok("REVOKE CREATE ON SCHEMA public FROM PUBLIC")
-
-    conn.execute(
-        sql.SQL("GRANT USAGE, CREATE ON SCHEMA public TO {}").format(sql.Identifier("migrador"))
-    )
-    resumen.ok("GRANT USAGE, CREATE ON SCHEMA public a migrador")
-    conn.execute(sql.SQL("GRANT USAGE ON SCHEMA public TO {}").format(sql.Identifier("app_rw")))
-    resumen.ok("GRANT USAGE ON SCHEMA public a app_rw")
-
+def conceder_lectura_postgis(conn: psycopg.Connection, resumen: Resumen) -> None:
     for tabla in TABLAS_POSTGIS:
         if not existe_relacion(conn, "public", tabla):
             resumen.aviso(f"public.{tabla} no existe; no se concede SELECT")
@@ -315,16 +320,28 @@ def configurar_negocio(
             resumen.fallo(f"GRANT SELECT ON public.{tabla} falló: {error}")
 
 
+def configurar_negocio(
+    conn: psycopg.Connection, claves: dict[str, str], resumen: Resumen
+) -> None:
+    titulo("BASE DE NEGOCIO")
+    base = info_conexion(conn, resumen)
+    habilitar_postgis(conn, resumen)
+    for rol in ROLES_NEGOCIO:
+        asegurar_rol(conn, rol, claves[rol], resumen)
+    conceder_connect(conn, base, ROLES_NEGOCIO, resumen)
+    revocar_create_publico(conn, resumen)
+    conceder_esquema_public(conn, "USAGE, CREATE", "migrador", resumen)
+    conceder_esquema_public(conn, "USAGE", "app_rw", resumen)
+    conceder_lectura_postgis(conn, resumen)
+
+
 def configurar_bitacora(conn: psycopg.Connection, clave: str, resumen: Resumen) -> None:
     titulo("BASE DE BITÁCORA")
     base = info_conexion(conn, resumen)
     asegurar_rol(conn, ROL_BITACORA, clave, resumen)
-    conceder_connect(conn, base, (ROL_BITACORA,))
-    resumen.ok(f"GRANT CONNECT ON DATABASE {base} a {ROL_BITACORA}")
-    conn.execute(sql.SQL("GRANT USAGE ON SCHEMA public TO {}").format(sql.Identifier(ROL_BITACORA)))
-    resumen.ok(f"GRANT USAGE ON SCHEMA public a {ROL_BITACORA}")
-    conn.execute("REVOKE CREATE ON SCHEMA public FROM PUBLIC")
-    resumen.ok("REVOKE CREATE ON SCHEMA public FROM PUBLIC")
+    conceder_connect(conn, base, (ROL_BITACORA,), resumen)
+    conceder_esquema_public(conn, "USAGE", ROL_BITACORA, resumen)
+    revocar_create_publico(conn, resumen)
 
 
 # --------------------------------------------------------------------------- verificaciones
@@ -339,23 +356,23 @@ select rolname, rolsuper, rolbypassrls, rolcreaterole, rolcreatedb, rolcanlogin,
  order by rolname
 """
 
+ENCABEZADO_ATRIBUTOS = (
+    "rolname",
+    "rolsuper",
+    "rolbypassrls",
+    "rolcreaterole",
+    "rolcreatedb",
+    "rolcanlogin",
+    "neon_superuser",
+)
+
 
 def verificar_atributos(
     conn: psycopg.Connection, roles: tuple[str, ...], resumen: Resumen
 ) -> None:
+    """Todos los atributos en false salvo rolcanlogin, y sin pertenecer a neon_superuser."""
     filas = conn.execute(CONSULTA_ATRIBUTOS, (list(roles),)).fetchall()
-    imprimir_tabla(
-        (
-            "rolname",
-            "rolsuper",
-            "rolbypassrls",
-            "rolcreaterole",
-            "rolcreatedb",
-            "rolcanlogin",
-            "neon_superuser",
-        ),
-        filas,
-    )
+    imprimir_tabla(ENCABEZADO_ATRIBUTOS, filas)
     encontrados = {fila[0] for fila in filas}
     for rol in roles:
         if rol not in encontrados:
@@ -372,6 +389,7 @@ def verificar_atributos(
 
 
 def probar_conexion_rol(cadena: str, rol: str, resumen: Resumen) -> None:
+    """Conecta como el rol y comprueba current_user y TLS."""
     try:
         with conectar(cadena) as conn:
             usuario = conn.execute("select current_user").fetchone()[0]
@@ -398,25 +416,29 @@ def probar_conexion_rol(cadena: str, rol: str, resumen: Resumen) -> None:
         )
 
 
+def intentar_crear_tabla(conn: psycopg.Connection, tabla: sql.Composable, borrar: bool) -> bool:
+    """Intenta crear (y opcionalmente borrar) la tabla; siempre revierte. True si pudo."""
+    try:
+        conn.execute(sql.SQL("CREATE TABLE {} (id integer)").format(tabla))
+        if borrar:
+            conn.execute(sql.SQL("DROP TABLE {}").format(tabla))
+        return True
+    except psycopg.errors.InsufficientPrivilege:
+        return False
+    finally:
+        conn.rollback()
+
+
 def probar_creacion(cadena: str, rol: str, debe_poder: bool, resumen: Resumen) -> str:
-    """Intenta crear (y si debe poder, borrar) una tabla dentro de una transacción con rollback."""
+    """Prueba si el rol puede crear tablas en public. Devuelve el nombre de tabla usado."""
     nombre = "_verificacion_" + secrets.token_hex(4)
-    tabla = sql.Identifier("public", nombre)
     try:
         conn = conectar(cadena, autocommit=False)
     except Abortar as error:
         resumen.fallo(f"{rol}: no se pudo conectar para la prueba de creación ({error})")
         return nombre
     try:
-        try:
-            conn.execute(sql.SQL("CREATE TABLE {} (id integer)").format(tabla))
-            if debe_poder:
-                conn.execute(sql.SQL("DROP TABLE {}").format(tabla))
-            pudo = True
-        except psycopg.errors.InsufficientPrivilege:
-            pudo = False
-        finally:
-            conn.rollback()
+        pudo = intentar_crear_tabla(conn, sql.Identifier("public", nombre), borrar=debe_poder)
     except psycopg.Error as error:
         resumen.fallo(f"{rol}: error inesperado en la prueba de creación ({error})")
         return nombre
@@ -432,6 +454,28 @@ def probar_creacion(cadena: str, rol: str, debe_poder: bool, resumen: Resumen) -
     else:
         resumen.ok(f"{rol}: crear una tabla en public falla por permiso, como se espera")
     return nombre
+
+
+def verificar(
+    conn_negocio: psycopg.Connection,
+    conn_bitacora: psycopg.Connection,
+    cadenas: dict[str, str],
+    resumen: Resumen,
+) -> None:
+    titulo("VERIFICACIONES")
+    verificar_atributos(conn_negocio, ROLES_NEGOCIO, resumen)
+    verificar_atributos(conn_bitacora, (ROL_BITACORA,), resumen)
+    for clave_secreto, rol in ROL_DE_SECRETO.items():
+        probar_conexion_rol(cadenas[clave_secreto], rol, resumen)
+    tablas_prueba = [
+        probar_creacion(cadenas["app"], "app_rw", debe_poder=False, resumen=resumen),
+        probar_creacion(cadenas["migrador"], "migrador", debe_poder=True, resumen=resumen),
+    ]
+    restos = [t for t in tablas_prueba if existe_relacion(conn_negocio, "public", t)]
+    if restos:
+        resumen.fallo(f"Quedaron tablas de prueba: {', '.join(restos)}")
+    else:
+        resumen.ok("No quedó ninguna tabla de prueba")
 
 
 # --------------------------------------------------------------------------- Secret Manager
@@ -473,36 +517,46 @@ def ejecutar_gcloud(
 
 
 def resumen_error_gcloud(stderr: str) -> str:
-    lineas = [l.strip() for l in stderr.splitlines() if l.strip()]
-    errores = [l for l in lineas if l.startswith("ERROR")]
+    lineas = [linea.strip() for linea in stderr.splitlines() if linea.strip()]
+    errores = [linea for linea in lineas if linea.startswith("ERROR")]
     return redactar((errores or lineas or ["sin detalle"])[-1])
 
 
-def guardar_secreto(
-    gcloud: str, proyecto: str, nombre: str, valor: str, resumen: Resumen
-) -> None:
-    datos = valor.encode("utf-8")  # bytes exactos, sin salto de línea final
+def argumentos_guardado(gcloud: str, proyecto: str, nombre: str) -> tuple[list[str], str] | str:
+    """Argumentos para crear el secreto o agregarle versión, o un mensaje de error."""
     codigo, _, error = ejecutar_gcloud(
         gcloud,
         ["secrets", "describe", nombre, f"--project={proyecto}", "--format=value(name)"],
     )
     if codigo == 0:
-        argumentos = ["secrets", "versions", "add", nombre, "--data-file=-", f"--project={proyecto}"]
-        accion = "nueva versión"
-    elif "NOT_FOUND" in error:
-        argumentos = [
-            "secrets",
-            "create",
-            nombre,
-            "--replication-policy=automatic",
-            "--data-file=-",
-            f"--project={proyecto}",
-        ]
-        accion = "secreto creado"
-    else:
-        resumen.fallo(f"{nombre}: no se pudo consultar el secreto ({resumen_error_gcloud(error)})")
-        return
+        return (
+            ["secrets", "versions", "add", nombre, "--data-file=-", f"--project={proyecto}"],
+            "nueva versión",
+        )
+    if "NOT_FOUND" in error:
+        return (
+            [
+                "secrets",
+                "create",
+                nombre,
+                "--replication-policy=automatic",
+                "--data-file=-",
+                f"--project={proyecto}",
+            ],
+            "secreto creado",
+        )
+    return f"no se pudo consultar el secreto ({resumen_error_gcloud(error)})"
 
+
+def guardar_secreto(
+    gcloud: str, proyecto: str, nombre: str, valor: str, resumen: Resumen
+) -> None:
+    preparado = argumentos_guardado(gcloud, proyecto, nombre)
+    if isinstance(preparado, str):
+        resumen.fallo(f"{nombre}: {preparado}")
+        return
+    argumentos, accion = preparado
+    datos = valor.encode("utf-8")  # bytes exactos, sin salto de línea final
     codigo, salida, error = ejecutar_gcloud(gcloud, argumentos, datos)
     if codigo != 0:
         resumen.fallo(f"{nombre}: gcloud falló ({resumen_error_gcloud(error)})")
@@ -532,17 +586,27 @@ def conceder_acceso_secreto(
         resumen.fallo(f"{nombre}: no se pudo conceder acceso ({resumen_error_gcloud(error)})")
 
 
+def guardar_secretos(
+    gcloud: str, args: argparse.Namespace, cadenas: dict[str, str], resumen: Resumen
+) -> None:
+    titulo("SECRET MANAGER")
+    nombres = SECRETOS[args.entorno]
+    for clave_secreto, nombre in nombres.items():
+        guardar_secreto(gcloud, args.proyecto_gcp, nombre, cadenas[clave_secreto], resumen)
+    if args.entorno == "prod":
+        for clave_secreto in ACCESO_CUENTA_SERVICIO:
+            conceder_acceso_secreto(
+                gcloud, args.proyecto_gcp, nombres[clave_secreto], args.cuenta_servicio, resumen
+            )
+        resumen.ok(f"{nombres['migrador']}: sin acceso para la cuenta de servicio (a propósito)")
+
+
 # --------------------------------------------------------------------------- plan
 
 
-def imprimir_plan(args: argparse.Namespace) -> None:
+def pasos_del_plan(args: argparse.Namespace) -> list[tuple[str, list[str]]]:
     nombres = SECRETOS[args.entorno]
-    rama = "dev" if args.entorno == "dev" else "production"
-    print("SIMULACIÓN (--simular): no se piden cadenas, no hay conexiones y no se ejecuta gcloud.")
-    print(f"Entorno: {args.entorno} | proyecto GCP: {args.proyecto_gcp}")
-    if args.entorno == "prod":
-        print("En una ejecución real se exigiría escribir PRODUCCION antes de continuar.")
-
+    rama = RAMAS_NEON[args.entorno]
     pasos = [
         (
             "Entrada",
@@ -593,18 +657,18 @@ def imprimir_plan(args: argparse.Namespace) -> None:
                 "Conectar como cada rol nuevo (cadena del dueño cambiando solo usuario y contraseña):"
                 " select current_user; TLS activo en el cliente;"
                 " select ssl from pg_stat_ssl where pid = pg_backend_pid().",
-                "app_rw: CREATE TABLE en public dentro de una transacción -> DEBE FALLAR por permiso.",
+                "app_rw: CREATE TABLE en public dentro de una transacción; DEBE FALLAR por permiso.",
                 "migrador: CREATE TABLE + DROP TABLE en public dentro de una transacción con"
-                " ROLLBACK -> DEBE FUNCIONAR.",
+                " ROLLBACK; DEBE FUNCIONAR.",
                 "Confirmar con el dueño que no quedó ninguna tabla de prueba.",
             ],
         ),
         (
             f"Secret Manager (gcloud, --project={args.proyecto_gcp}; valores por stdin, sin salto final)",
             [
-                f"{nombres['app']} <- cadena de app_rw (base de negocio).",
-                f"{nombres['migrador']} <- cadena de migrador (base de negocio).",
-                f"{nombres['bitacora']} <- cadena de bit_rw (base de bitácora).",
+                f"{nombres['app']}: recibe la cadena de app_rw (base de negocio).",
+                f"{nombres['migrador']}: recibe la cadena de migrador (base de negocio).",
+                f"{nombres['bitacora']}: recibe la cadena de bit_rw (base de bitácora).",
                 "Si el secreto no existe: secrets create NOMBRE --replication-policy=automatic"
                 " --data-file=-; si existe: secrets versions add NOMBRE --data-file=-.",
                 "Se informa solo el nombre del secreto y el número de versión.",
@@ -630,8 +694,15 @@ def imprimir_plan(args: argparse.Namespace) -> None:
                 ["En dev no se concede acceso a la cuenta de servicio de Cloud Run."],
             )
         )
+    return pasos
 
-    for numero, (seccion, acciones) in enumerate(pasos, start=1):
+
+def imprimir_plan(args: argparse.Namespace) -> None:
+    print("SIMULACIÓN (--simular): no se piden cadenas, no hay conexiones y no se ejecuta gcloud.")
+    print(f"Entorno: {args.entorno} | proyecto GCP: {args.proyecto_gcp}")
+    if args.entorno == "prod":
+        print(f"En una ejecución real se exigiría escribir {CONFIRMACION_PRODUCCION} antes de continuar.")
+    for numero, (seccion, acciones) in enumerate(pasos_del_plan(args), start=1):
         print(f"\n{numero}. {seccion}")
         for accion in acciones:
             print(f"   - {accion}")
@@ -657,83 +728,90 @@ def analizar_argumentos(argv: list[str] | None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def confirmar_produccion() -> bool:
+    respuesta = input(
+        f"Va a modificar PRODUCCIÓN. Escriba {CONFIRMACION_PRODUCCION} para continuar: "
+    )
+    return respuesta == CONFIRMACION_PRODUCCION
+
+
+def pedir_cadena(base: str, rama: str) -> str:
+    """Pide sin eco la cadena del dueño de una base y la registra como sensible."""
+    cadena = getpass.getpass(
+        f"Cadena del DUEÑO de la base de {base} (rama {rama}; no se mostrará): "
+    ).strip()
+    registrar_sensible(cadena)
+    return cadena
+
+
+def validar_entradas(cadena_negocio: str, cadena_bitacora: str, resumen: Resumen) -> None:
+    titulo("VALIDACIÓN DE ENTRADAS")
+    destino_negocio = validar_cadena(cadena_negocio, "negocio")
+    destino_bitacora = validar_cadena(cadena_bitacora, "bitácora")
+    if destino_negocio == destino_bitacora:
+        raise Abortar("Las dos cadenas apuntan a la misma base; la bitácora debe ser otra base.")
+    resumen.ok("Cadenas válidas: Neon, conexión directa (sin pooler) y sslmode=require")
+
+
+def generar_claves() -> dict[str, str]:
+    claves = {rol: secrets.token_urlsafe(32) for rol in (*ROLES_NEGOCIO, ROL_BITACORA)}
+    registrar_sensible(*claves.values())
+    return claves
+
+
+def cadenas_de_roles(
+    cadena_negocio: str, cadena_bitacora: str, claves: dict[str, str]
+) -> dict[str, str]:
+    return {
+        "app": cadena_para_rol(cadena_negocio, "app_rw", claves["app_rw"]),
+        "migrador": cadena_para_rol(cadena_negocio, "migrador", claves["migrador"]),
+        "bitacora": cadena_para_rol(cadena_bitacora, ROL_BITACORA, claves[ROL_BITACORA]),
+    }
+
+
+def configurar_y_verificar(
+    cadena_negocio: str,
+    cadena_bitacora: str,
+    claves: dict[str, str],
+    cadenas: dict[str, str],
+    resumen: Resumen,
+) -> None:
+    try:
+        with conectar(cadena_negocio) as conn_negocio, conectar(cadena_bitacora) as conn_bitacora:
+            configurar_negocio(conn_negocio, claves, resumen)
+            configurar_bitacora(conn_bitacora, claves[ROL_BITACORA], resumen)
+            verificar(conn_negocio, conn_bitacora, cadenas, resumen)
+    except psycopg.Error as error:
+        resumen.fallo(f"Error de base de datos: {type(error).__name__}: {error}")
+
+
 def ejecutar(args: argparse.Namespace) -> int:
     resumen = Resumen()
 
-    if args.entorno == "prod":
-        respuesta = input("Va a modificar PRODUCCIÓN. Escriba PRODUCCION para continuar: ")
-        if respuesta != "PRODUCCION":
-            print("Abortado: no se escribió PRODUCCION.")
-            return 1
+    if args.entorno == "prod" and not confirmar_produccion():
+        print(f"Abortado: no se escribió {CONFIRMACION_PRODUCCION}.")
+        return 1
 
-    rama = "dev" if args.entorno == "dev" else "production"
-    cadena_negocio = getpass.getpass(
-        f"Cadena del DUEÑO de la base de NEGOCIO (rama {rama}; no se mostrará): "
-    ).strip()
-    registrar_sensible(cadena_negocio)
-    cadena_bitacora = getpass.getpass(
-        f"Cadena del DUEÑO de la base de BITÁCORA (rama {rama}; no se mostrará): "
-    ).strip()
-    registrar_sensible(cadena_bitacora)
-
-    titulo("VALIDACIÓN DE ENTRADAS")
-    host_negocio, base_negocio = validar_cadena(cadena_negocio, "negocio")
-    host_bitacora, base_bitacora = validar_cadena(cadena_bitacora, "bitácora")
-    if (host_negocio, base_negocio) == (host_bitacora, base_bitacora):
-        raise Abortar("Las dos cadenas apuntan a la misma base; la bitácora debe ser otra base.")
-    resumen.ok("Cadenas válidas: Neon, conexión directa (sin pooler) y sslmode=require")
+    rama = RAMAS_NEON[args.entorno]
+    cadena_negocio = pedir_cadena("NEGOCIO", rama)
+    cadena_bitacora = pedir_cadena("BITÁCORA", rama)
+    validar_entradas(cadena_negocio, cadena_bitacora, resumen)
 
     gcloud = localizar_gcloud()
     if not gcloud:
         raise Abortar("No se encontró gcloud; instálelo o agréguelo al PATH antes de continuar.")
     resumen.ok("gcloud localizado")
 
-    claves = {rol: secrets.token_urlsafe(32) for rol in (*ROLES_NEGOCIO, ROL_BITACORA)}
-    registrar_sensible(*claves.values())
-    cadenas = {
-        "app": cadena_para_rol(cadena_negocio, "app_rw", claves["app_rw"]),
-        "migrador": cadena_para_rol(cadena_negocio, "migrador", claves["migrador"]),
-        "bitacora": cadena_para_rol(cadena_bitacora, ROL_BITACORA, claves[ROL_BITACORA]),
-    }
-
-    try:
-        with conectar(cadena_negocio) as conn_negocio, conectar(cadena_bitacora) as conn_bitacora:
-            configurar_negocio(conn_negocio, claves, resumen)
-            configurar_bitacora(conn_bitacora, claves[ROL_BITACORA], resumen)
-
-            titulo("VERIFICACIONES")
-            verificar_atributos(conn_negocio, ROLES_NEGOCIO, resumen)
-            verificar_atributos(conn_bitacora, (ROL_BITACORA,), resumen)
-            for clave_secreto, rol in ROL_DE_SECRETO.items():
-                probar_conexion_rol(cadenas[clave_secreto], rol, resumen)
-            tablas_prueba = [
-                probar_creacion(cadenas["app"], "app_rw", debe_poder=False, resumen=resumen),
-                probar_creacion(cadenas["migrador"], "migrador", debe_poder=True, resumen=resumen),
-            ]
-            restos = [t for t in tablas_prueba if existe_relacion(conn_negocio, "public", t)]
-            if restos:
-                resumen.fallo(f"Quedaron tablas de prueba: {', '.join(restos)}")
-            else:
-                resumen.ok("No quedó ninguna tabla de prueba")
-    except psycopg.Error as error:
-        resumen.fallo(f"Error de base de datos: {type(error).__name__}: {error}")
+    claves = generar_claves()
+    cadenas = cadenas_de_roles(cadena_negocio, cadena_bitacora, claves)
+    configurar_y_verificar(cadena_negocio, cadena_bitacora, claves, cadenas, resumen)
 
     if resumen.hay_fallos:
         print("\nHay fallos: NO se guardó ningún secreto.")
         resumen.imprimir()
         return 1
 
-    titulo("SECRET MANAGER")
-    nombres = SECRETOS[args.entorno]
-    for clave_secreto, nombre in nombres.items():
-        guardar_secreto(gcloud, args.proyecto_gcp, nombre, cadenas[clave_secreto], resumen)
-    if args.entorno == "prod":
-        for clave_secreto in ACCESO_CUENTA_SERVICIO:
-            conceder_acceso_secreto(
-                gcloud, args.proyecto_gcp, nombres[clave_secreto], args.cuenta_servicio, resumen
-            )
-        resumen.ok(f"{nombres['migrador']}: sin acceso para la cuenta de servicio (a propósito)")
-
+    guardar_secretos(gcloud, args, cadenas, resumen)
     resumen.imprimir()
     return 1 if resumen.hay_fallos else 0
 
@@ -747,13 +825,13 @@ def main(argv: list[str] | None = None) -> int:
     try:
         return ejecutar(args)
     except Abortar as error:
-        print(f"\n✘ Abortado: {redactar(error)}", file=sys.stderr)
+        print(f"\n[FALLO] Abortado: {redactar(error)}", file=sys.stderr)
         return 1
     except KeyboardInterrupt:
-        print("\n✘ Cancelado por el usuario.", file=sys.stderr)
+        print("\n[FALLO] Cancelado por el usuario.", file=sys.stderr)
         return 130
     except Exception as error:  # nunca mostrar trazas que puedan contener cadenas
-        print(f"\n✘ Error inesperado: {redactar(f'{type(error).__name__}: {error}')}", file=sys.stderr)
+        print(f"\n[FALLO] Error inesperado: {redactar(f'{type(error).__name__}: {error}')}", file=sys.stderr)
         return 1
 
 

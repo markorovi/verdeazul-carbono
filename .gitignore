@@ -11,3 +11,4 @@ CLAUDE.md
 *.sqlite3
 *.db-journal
 local.db
+.env.*
