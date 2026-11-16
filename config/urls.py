@@ -1,6 +1,6 @@
 from django.db import connection
 from django.http import JsonResponse
-from django.urls import path
+from django.urls import include, path
 
 
 def inicio(request):
@@ -13,4 +13,5 @@ def inicio(request):
 
 urlpatterns = [
     path("", inicio),
+    path("", include("usuarios.urls")),
 ]

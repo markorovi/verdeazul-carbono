@@ -42,7 +42,8 @@ class UsuarioManager(BaseUserManager):
         """Crea un usuario; sin contraseña queda con una contraseña inutilizable."""
         if not correo:
             raise ValueError("El correo es obligatorio.")
-        usuario = self.model(correo=self.normalize_email(correo), nombre=nombre)
+        # Todo en minúsculas: el inicio de sesión busca el correo normalizado así.
+        usuario = self.model(correo=correo.strip().lower(), nombre=nombre)
         usuario.set_password(password)
         usuario.save(using=self._db)
         return usuario
@@ -55,6 +56,13 @@ class Usuario(ModeloConUUID, AbstractBaseUser):
     nombre = models.CharField(max_length=150)
     activo = models.BooleanField(default=True)
     creado_en = models.DateTimeField(default=timezone.now)
+    # Secreto TOTP cifrado con AES-256-GCM (ver usuarios.cifrado); nunca en claro.
+    totp_secreto_cifrado = models.BinaryField(null=True, blank=True)
+    # db_default deja el DEFAULT también en la base, para los INSERT hechos por SQL.
+    totp_confirmado = models.BooleanField(default=False, db_default=False)
+    totp_ultimo_paso = models.BigIntegerField(null=True)
+    intentos_fallidos = models.PositiveSmallIntegerField(default=0, db_default=0)
+    bloqueado_hasta = models.DateTimeField(null=True)
 
     objects = UsuarioManager()
 

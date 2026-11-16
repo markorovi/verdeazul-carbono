@@ -51,6 +51,13 @@ SESSION_COOKIE_SECURE = not EN_LOCAL
 CSRF_COOKIE_SECURE = not EN_LOCAL
 SECURE_HSTS_SECONDS = 0 if EN_LOCAL else 31536000
 
+SESSION_COOKIE_AGE = 1800
+SESSION_SAVE_EVERY_REQUEST = True
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = "Strict"
+CSRF_COOKIE_SAMESITE = "Strict"
+CSRF_COOKIE_HTTPONLY = True
+
 # Oculta en los reportes de error cualquier valor cuyo nombre contenga DATABASE (p. ej. DATABASE_URL).
 DEFAULT_EXCEPTION_REPORTER_FILTER = "config.seguridad.FiltroReporteSeguro"
 
@@ -108,15 +115,30 @@ DATABASES = {
 }
 
 
-# Password validation
-# https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
+# Autenticación: un único hasher (Argon2id) y segundo factor TOTP propio.
+
+PASSWORD_HASHERS = ["usuarios.hashers.Argon2idHasher"]
+
+AUTHENTICATION_BACKENDS = ["usuarios.autenticacion.BackendCorreo"]
+
+LOGIN_URL = "/acceso/"
+
+# Los eventos de seguridad (logger "verdeazul.*") salen por consola; Cloud Run los recoge.
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {"consola": {"class": "logging.StreamHandler"}},
+    "loggers": {"verdeazul": {"handlers": ["consola"], "level": "INFO"}},
+}
 
 AUTH_PASSWORD_VALIDATORS = [
     {
         'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
+        'OPTIONS': {'user_attributes': ("correo", "nombre")},
     },
     {
         'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+        'OPTIONS': {'min_length': 12},
     },
     {
         'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
