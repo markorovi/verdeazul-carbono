@@ -116,7 +116,19 @@ def nueva_parcela(cur: psycopg.Cursor, finca_id: uuid.UUID, wkt: str, srid: int 
     return parcela_id
 
 
+def declarar_actor(cur: psycopg.Cursor, usuario_id) -> None:
+    cur.execute("SELECT set_config('app.usuario_id', %s, true)", (str(usuario_id),))
+
+
+def actor_r7(cur: psycopg.Cursor) -> uuid.UUID:
+    """Abrir y cerrar períodos exige un actor con R7 vigente; se crea uno en la transacción."""
+    usuario = usuario_con_roles(cur, "R7")
+    declarar_actor(cur, usuario)
+    return usuario
+
+
 def nuevo_periodo(cur: psycopg.Cursor) -> uuid.UUID:
+    actor_r7(cur)
     periodo_id = uuid.uuid4()
     cur.execute(
         "INSERT INTO mediciones_periodo (id, inicio, fin, estado) VALUES (%s, %s, %s, 'abierto')",
@@ -126,6 +138,7 @@ def nuevo_periodo(cur: psycopg.Cursor) -> uuid.UUID:
 
 
 def cerrar_periodo(cur: psycopg.Cursor, periodo_id: uuid.UUID, cerrado_por=None) -> None:
+    declarar_actor(cur, cerrado_por if cerrado_por is not None else actor_r7(cur))
     cur.execute(
         "UPDATE mediciones_periodo SET estado = 'cerrado', cerrado_en = now(), cerrado_por_id = %s"
         " WHERE id = %s",
@@ -185,7 +198,7 @@ def parcela_con_tecnico_r1(cur: psycopg.Cursor) -> Contexto:
 
 
 def periodo_abierto(cur: psycopg.Cursor) -> Contexto:
-    return {"periodo": nuevo_periodo(cur), "usuario": nuevo_usuario(cur)}
+    return {"periodo": nuevo_periodo(cur), "usuario": usuario_con_roles(cur, "R7")}
 
 
 def periodo_cerrado(cur: psycopg.Cursor) -> Contexto:

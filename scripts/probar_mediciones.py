@@ -185,7 +185,13 @@ class Escenario:
             (uuid.uuid4(), auditor, abierta_por, solicitada_por),
         )
 
-    def periodo(self) -> uuid.UUID:
+    def periodo(self, r7=None) -> uuid.UUID:
+        """Abrir un período exige un actor R7 vigente; si no se indica, se crea uno."""
+        self.actor(r7 or self.usuario("R7"))
+        return self.insertar_periodo()
+
+    def insertar_periodo(self) -> uuid.UUID:
+        """Inserta un período con el actor ya declarado en la transacción."""
         periodo_id = uuid.uuid4()
         self.sql(
             "INSERT INTO mediciones_periodo (id, inicio, fin, estado) VALUES (%s, %s, %s, 'abierto')",
@@ -193,13 +199,13 @@ class Escenario:
         )
         return periodo_id
 
-    def cerrar(self, periodo, actor, hace_dias: int = 0) -> None:
-        """El cierre corre con la RLS del actor: sin actor, los borradores no cambian."""
+    def cerrar(self, periodo, actor) -> None:
+        """La base exige R7 y fija cerrado_en = now() y cerrado_por = actor."""
         self.actor(actor)
         self.afectar(
-            "UPDATE mediciones_periodo SET estado = 'cerrado', cerrado_en = now() - make_interval(days => %s),"
-            " cerrado_por_id = %s WHERE id = %s",
-            (hace_dias, actor, periodo),
+            "UPDATE mediciones_periodo SET estado = 'cerrado', cerrado_en = now(), cerrado_por_id = %s"
+            " WHERE id = %s",
+            (actor, periodo),
         )
 
     # mediciones
@@ -293,24 +299,24 @@ class Escenario:
         ctx["finca"] = self.finca()
         ctx["parcela"] = self.parcela(ctx["finca"])
         self.asignar(ctx["tecnico"], ctx["parcela"])
-        ctx["periodo"] = self.periodo()
+        ctx["periodo"] = self.periodo(ctx["r7"])
         ctx["medicion"] = self.medicion(ctx["tecnico"], ctx["parcela"], ctx["periodo"])
         ctx["version"] = self.version(ctx["medicion"], 1, ctx["tecnico"], co2e=co2e)
         return ctx
 
-    def presentada_y_cerrada(self, co2e=CO2E_BAJO, hace_dias: int = 0) -> dict:
+    def presentada_y_cerrada(self, co2e=CO2E_BAJO) -> dict:
         ctx = self.base(co2e)
         self.cambiar_estado(ctx["medicion"], "presentada", ctx["tecnico"])
-        self.cerrar(ctx["periodo"], ctx["r7"], hace_dias)
+        self.cerrar(ctx["periodo"], ctx["r7"])
         return ctx
 
-    def aprobada(self, co2e=CO2E_BAJO, hace_dias: int = 0) -> dict:
-        ctx = self.presentada_y_cerrada(co2e, hace_dias)
+    def aprobada(self, co2e=CO2E_BAJO) -> dict:
+        ctx = self.presentada_y_cerrada(co2e)
         self.aprobar(ctx["medicion"], ctx["version"], ctx["r2"])
         return ctx
 
-    def certificada(self, co2e=CO2E_BAJO, hace_dias: int = 0) -> dict:
-        ctx = self.aprobada(co2e, hace_dias)
+    def certificada(self, co2e=CO2E_BAJO) -> dict:
+        ctx = self.aprobada(co2e)
         ctx["certificado"] = self.emitir(ctx, ctx["r2"])
         return ctx
 
@@ -347,6 +353,76 @@ def p02(app, mig):
     ]
     esperados = [SIN_PERMISO] * 3 + [INTEGRIDAD] * 3
     return resultado(obtenidos == esperados, "app_rw " + ", ".join(obtenidos[:3]) + "; migrador " + ", ".join(obtenidos[3:]))
+
+
+ROLES_SIN_R7 = ("R1", "R2", "R3", "R4", "R5", "R6")
+
+
+def intentos_por_rol(e: Escenario, accion: Callable[[], object]) -> dict[str, str]:
+    """Ejecuta la acción con un actor por cada rol distinto de R7 y sin actor."""
+    obtenidos = {}
+    for rol in ROLES_SIN_R7:
+        e.actor(e.usuario(rol))
+        obtenidos[rol] = intento(e.cur, accion)
+    e.actor(None)
+    obtenidos["sin actor"] = intento(e.cur, accion)
+    return obtenidos
+
+
+def resumen_por_rol(obtenidos: dict[str, str]) -> str:
+    return ", ".join(f"{rol} {valor}" for rol, valor in obtenidos.items())
+
+
+def pe01(app, mig):
+    e = Escenario(app)
+    obtenidos = intentos_por_rol(e, e.insertar_periodo)
+    return resultado(all(v == INTEGRIDAD for v in obtenidos.values()), resumen_por_rol(obtenidos))
+
+
+def pe02(app, mig):
+    e = Escenario(app)
+    r7 = e.usuario("R7")
+    obtenido = intento(app, lambda: e.periodo(r7))
+    return resultado(obtenido == PASA, obtenido)
+
+
+def cerrar_sin_fijar_actor(e: Escenario, periodo) -> None:
+    e.afectar(
+        "UPDATE mediciones_periodo SET estado = 'cerrado', cerrado_en = now() WHERE id = %s", (periodo,)
+    )
+
+
+def pe03(app, mig):
+    e = Escenario(app)
+    periodo = e.periodo()
+    obtenidos = intentos_por_rol(e, lambda: cerrar_sin_fijar_actor(e, periodo))
+    return resultado(all(v == INTEGRIDAD for v in obtenidos.values()), resumen_por_rol(obtenidos))
+
+
+def pe04(app, mig):
+    e = Escenario(app)
+    r7, otro = e.usuario("R7"), e.usuario("R7")
+    periodo = e.periodo(r7)
+    e.actor(r7)
+    obtenido = intento(app, lambda: e.afectar(
+        "UPDATE mediciones_periodo SET estado = 'cerrado', cerrado_en = %s, cerrado_por_id = %s WHERE id = %s",
+        (date(2000, 1, 1), otro, periodo)))
+    fecha_ok, autor_ok = app.execute(
+        "SELECT cerrado_en = now(), cerrado_por_id = %s FROM mediciones_periodo WHERE id = %s", (r7, periodo)
+    ).fetchone()
+    ok = obtenido == PASA and fecha_ok and autor_ok
+    return resultado(ok, f"{obtenido}; cerrado_en = now(): {fecha_ok}; cerrado_por = actor: {autor_ok}")
+
+
+def pe05(app, mig):
+    e = Escenario(app)
+    r7 = e.usuario("R7")
+    periodo = e.periodo(r7)
+    e.cerrar(periodo, r7)
+    obtenido = intento(app, lambda: e.afectar(
+        "UPDATE mediciones_periodo SET estado = 'abierto', cerrado_en = NULL, cerrado_por_id = NULL WHERE id = %s",
+        (periodo,)))
+    return resultado(obtenido == INTEGRIDAD, f"{obtenido} (reabrir como R7)")
 
 
 def m01(app, mig):
@@ -483,7 +559,7 @@ def v05(app, mig):
     e.cambiar_estado(ctx["medicion"], "presentada", ctx["tecnico"])
     presentada = intento(app, lambda: e.version(ctx["medicion"], 2, ctx["tecnico"]))
     otro = e.base()
-    e.cerrar(otro["periodo"], None)
+    e.cerrar(otro["periodo"], otro["r7"])
     cerrada = intento(app, lambda: e.version(otro["medicion"], 2, otro["tecnico"]))
     return resultado(presentada == INTEGRIDAD and cerrada == INTEGRIDAD, f"presentada {presentada}; período cerrado {cerrada}")
 
@@ -498,9 +574,9 @@ def s01(app, mig):
 def s02(app, mig):
     e = Escenario(app)
     ctx = e.base()
-    e.cerrar(ctx["periodo"], None)
+    e.cerrar(ctx["periodo"], ctx["r7"])
     obtenido = intento(app, lambda: e.cambiar_estado(ctx["medicion"], "presentada", ctx["tecnico"]))
-    return resultado(obtenido == INTEGRIDAD, f"{obtenido} (borrador intacto al cerrar sin actor)")
+    return resultado(obtenido == INTEGRIDAD, f"{obtenido} (al cerrar, el borrador quedó sin_presentar)")
 
 
 def s03(app, mig):
@@ -686,18 +762,39 @@ def e01(app, mig):
     return resultado(obtenido == PASA, obtenido)
 
 
+def certificada_con_plazo_vencido(mig) -> tuple[Escenario, dict]:
+    """Medición certificada cuyo período cerró hace DIAS_FUERA_DE_PLAZO días.
+
+    El cierre real fija cerrado_en = now(); para simular el paso del tiempo, el migrador (dueño),
+    dentro de la transacción que se revierte, desactiva solo el disparador que fija la fecha y
+    quita FORCE para operar sin políticas. Las reglas de la enmienda siguen activas.
+    """
+    mig.execute("ALTER TABLE mediciones_periodo DISABLE TRIGGER mediciones_periodo_inmutable")
+    for tabla in TABLAS_RLS:
+        mig.execute(f"ALTER TABLE {tabla} NO FORCE ROW LEVEL SECURITY")
+    e = Escenario(mig)
+    ctx = e.base()
+    e.cambiar_estado(ctx["medicion"], "presentada", ctx["tecnico"])
+    e.afectar(
+        "UPDATE mediciones_periodo SET estado = 'cerrado', cerrado_en = now() - make_interval(days => %s),"
+        " cerrado_por_id = %s WHERE id = %s",
+        (DIAS_FUERA_DE_PLAZO, ctx["r7"], ctx["periodo"]),
+    )
+    e.aprobar(ctx["medicion"], ctx["version"], ctx["r2"])
+    ctx["certificado"] = e.emitir(ctx, ctx["r2"])
+    return e, ctx
+
+
 def e02(app, mig):
-    e = Escenario(app)
-    ctx = e.certificada(hace_dias=DIAS_FUERA_DE_PLAZO)
-    obtenido = intento(app, lambda: e.enmienda(ctx["medicion"], ctx["tecnico"]))
+    e, ctx = certificada_con_plazo_vencido(mig)
+    obtenido = intento(mig, lambda: e.enmienda(ctx["medicion"], ctx["tecnico"]))
     return resultado(obtenido == INTEGRIDAD, obtenido)
 
 
 def e03(app, mig):
-    e = Escenario(app)
-    ctx = e.certificada(hace_dias=DIAS_FUERA_DE_PLAZO)
+    e, ctx = certificada_con_plazo_vencido(mig)
     e.anular(ctx["certificado"], ctx["r7"])
-    obtenido = intento(app, lambda: e.enmienda(ctx["medicion"], ctx["tecnico"]))
+    obtenido = intento(mig, lambda: e.enmienda(ctx["medicion"], ctx["tecnico"]))
     return resultado(obtenido == PASA, obtenido)
 
 
@@ -834,7 +931,7 @@ def visibles(e: Escenario, actor, mediciones: list) -> dict[str, set]:
 def escenario_rls(e: Escenario) -> dict:
     ctx = {"tecnico": e.usuario("R1"), "r2": e.usuario("R2"), "r7": e.usuario("R7"),
            "dueno": e.usuario("R6"), "auditor": e.usuario("R5")}
-    ctx["periodo"] = e.periodo()
+    ctx["periodo"] = e.periodo(ctx["r7"])
     for clave in ("a", "b"):
         finca = e.finca()
         parcela = e.parcela(finca)
@@ -883,7 +980,24 @@ def pruebas_rls(app, mig) -> list[tuple[str, str, str, bool, str]]:
                   all(v == set(ambas) for v in r2.values()) and all(v == set(ambas) for v in r7.values()),
                   f"R2 {sum(len(v) for v in r2.values())}, R7 {sum(len(v) for v in r7.values())}"))
 
-    desactivar = [intento(app, lambda t=t: app.execute(f"ALTER TABLE {t} DISABLE ROW LEVEL SECURITY")) for t in TABLAS_RLS]
+    sin_lectura = {
+        "sin roles": visibles(e, e.usuario(), ambas),
+        "solo R3": visibles(e, e.usuario("R3"), ambas),
+        "solo R4": visibles(e, e.usuario("R4"), ambas),
+    }
+    filas.append(("L01", "Sin roles, solo R3 y solo R4 no ven filas en las 5 tablas", "0, 0 y 0",
+                  all(not v for vistas in sin_lectura.values() for v in vistas.values()),
+                  "; ".join(f"{k} {sum(len(v) for v in vistas.values())}" for k, vistas in sin_lectura.items())))
+
+    tecnico = visibles(e, ctx["tecnico"], ambas)
+    filas.append(("L02", "R1 conserva su alcance de lectura (todas las filas)", "10",
+                  all(v == set(ambas) for v in tecnico.values()), f"R1 {sum(len(v) for v in tecnico.values())}"))
+
+    mixto = visibles(e, e.usuario("R3", "R1"), ambas)
+    filas.append(("L03", "Usuario con R3 y R1 conserva el acceso de R1", "10",
+                  all(v == set(ambas) for v in mixto.values()), f"R3+R1 {sum(len(v) for v in mixto.values())}"))
+
+    desactivar =[intento(app, lambda t=t: app.execute(f"ALTER TABLE {t} DISABLE ROW LEVEL SECURITY")) for t in TABLAS_RLS]
     quitar_force = [intento(app, lambda t=t: app.execute(f"ALTER TABLE {t} NO FORCE ROW LEVEL SECURITY")) for t in TABLAS_RLS]
     filas.append(("R06", "app_rw no puede desactivar la RLS", "falla 42501 en las 5 tablas",
                   all(x == SIN_PERMISO for x in desactivar + quitar_force),
@@ -989,6 +1103,11 @@ class Resultado:
 PRUEBAS = [
     ("P01", "Parámetros sembrados con los valores de la política", "10 valores correctos", p01),
     ("P02", "Parámetros: UPDATE, DELETE y TRUNCATE rechazados (app_rw y migrador)", "42501 x3; 23000 x3", p02),
+    ("PE01", "Abrir período como R1 a R6 o sin actor", "23000 x7", pe01),
+    ("PE02", "Abrir período como R7", PASA, pe02),
+    ("PE03", "Cerrar período como R1 a R6 o sin actor", "23000 x7", pe03),
+    ("PE04", "Cierre por R7: la base fija cerrado_en = now() y cerrado_por = actor", "pasa; fecha y autor de la base", pe04),
+    ("PE05", "Reabrir un período cerrado, incluso como R7", INTEGRIDAD, pe05),
     ("M01", "R1 asignado registra en período abierto", PASA, m01),
     ("M02", "R1 no asignado no registra (RLS)", SIN_PERMISO, m02),
     ("M03", "Registro con período cerrado", INTEGRIDAD, m03),
@@ -1001,7 +1120,7 @@ PRUEBAS = [
     ("V04", "UPDATE, DELETE y TRUNCATE de versiones (TRUNCATE también migrador)", "42501 x3; 23000", v04),
     ("V05", "Versión sin enmienda con medición presentada o período cerrado (AM-01)", "23000, 23000", v05),
     ("S01", "Presentar con período abierto", PASA, s01),
-    ("S02", "Presentar con período cerrado", INTEGRIDAD, s02),
+    ("S02", "Presentar después del cierre del período", INTEGRIDAD, s02),
     ("S03", "Aprobar con período abierto", INTEGRIDAD, s03),
     ("S04", "Borrador a aprobada", INTEGRIDAD, s04),
     ("S05", "Al cerrar el período los borradores pasan a sin_presentar", "sin_presentar; presentada intacta", s05),
@@ -1079,12 +1198,15 @@ def conectar(rol: str) -> psycopg.Connection:
 
 
 def conteos(conexion: psycopg.Connection) -> dict[str, int]:
-    """Conteos reales: un actor sin roles ve todas las filas según la regla de lectura."""
+    """Conteos reales con un actor R7 temporal (ve todas las filas); la transacción se revierte."""
     cur = conexion.cursor()
     try:
-        cur.execute("SELECT set_config('app.usuario_id', %s, true)", (str(uuid.uuid4()),))
+        usuarios = cur.execute("SELECT count(*) FROM usuarios_usuario").fetchone()[0]
+        e = Escenario(cur)
+        e.actor(e.usuario("R7"))
         totales = {t: cur.execute(f"SELECT count(*) FROM {t}").fetchone()[0] for t in TABLAS_NUEVAS}
-        totales["usuarios_usuario"] = cur.execute("SELECT count(*) FROM usuarios_usuario").fetchone()[0]
+        totales["mediciones_periodo"] = cur.execute("SELECT count(*) FROM mediciones_periodo").fetchone()[0]
+        totales["usuarios_usuario"] = usuarios
         return totales
     finally:
         conexion.rollback()
