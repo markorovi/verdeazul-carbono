@@ -278,6 +278,12 @@ def conceder_connect(
     resumen.ok(f"GRANT CONNECT ON DATABASE {base} a {' y '.join(roles)}")
 
 
+def revocar_connect_publico(conn: psycopg.Connection, base: str, resumen: Resumen) -> None:
+    """Sin esto, cualquier rol del clúster (por ejemplo bit_rw) podría conectarse a la base."""
+    conn.execute(sql.SQL("REVOKE CONNECT ON DATABASE {} FROM PUBLIC").format(sql.Identifier(base)))
+    resumen.ok(f"REVOKE CONNECT ON DATABASE {base} FROM PUBLIC")
+
+
 def revocar_create_publico(conn: psycopg.Connection, resumen: Resumen) -> None:
     conn.execute("REVOKE CREATE ON SCHEMA public FROM PUBLIC")
     resumen.ok("REVOKE CREATE ON SCHEMA public FROM PUBLIC")
@@ -328,6 +334,7 @@ def configurar_negocio(
     habilitar_postgis(conn, resumen)
     for rol in ROLES_NEGOCIO:
         asegurar_rol(conn, rol, claves[rol], resumen)
+    revocar_connect_publico(conn, base, resumen)
     conceder_connect(conn, base, ROLES_NEGOCIO, resumen)
     revocar_create_publico(conn, resumen)
     conceder_esquema_public(conn, "USAGE, CREATE", "migrador", resumen)
@@ -339,6 +346,7 @@ def configurar_bitacora(conn: psycopg.Connection, clave: str, resumen: Resumen) 
     titulo("BASE DE BITÁCORA")
     base = info_conexion(conn, resumen)
     asegurar_rol(conn, ROL_BITACORA, clave, resumen)
+    revocar_connect_publico(conn, base, resumen)
     conceder_connect(conn, base, (ROL_BITACORA,), resumen)
     conceder_esquema_public(conn, "USAGE", ROL_BITACORA, resumen)
     revocar_create_publico(conn, resumen)
@@ -386,6 +394,26 @@ def verificar_atributos(
                 f" rolcreaterole={createrole}, rolcreatedb={createdb}, rolcanlogin={login},"
                 f" neon_superuser={neon})"
             )
+
+
+def public_tiene_connect(acl: list[str] | None) -> bool:
+    """En el ACL, una entrada de PUBLIC empieza con "=" ("=Tc/dueño"); "c" es CONNECT.
+
+    Un ACL nulo significa los privilegios por defecto, que incluyen CONNECT para PUBLIC.
+    """
+    if acl is None:
+        return True
+    return any(entrada.startswith("=") and "c" in entrada.split("/", 1)[0] for entrada in acl)
+
+
+def verificar_connect_publico(conn: psycopg.Connection, resumen: Resumen) -> None:
+    base, acl = conn.execute(
+        "SELECT datname, datacl::text[] FROM pg_database WHERE datname = current_database()"
+    ).fetchone()
+    if public_tiene_connect(acl):
+        resumen.fallo(f"PUBLIC aún tiene CONNECT sobre la base {base}")
+    else:
+        resumen.ok(f"PUBLIC no tiene CONNECT sobre la base {base}")
 
 
 def probar_conexion_rol(cadena: str, rol: str, resumen: Resumen) -> None:
@@ -465,6 +493,8 @@ def verificar(
     titulo("VERIFICACIONES")
     verificar_atributos(conn_negocio, ROLES_NEGOCIO, resumen)
     verificar_atributos(conn_bitacora, (ROL_BITACORA,), resumen)
+    verificar_connect_publico(conn_negocio, resumen)
+    verificar_connect_publico(conn_bitacora, resumen)
     for clave_secreto, rol in ROL_DE_SECRETO.items():
         probar_conexion_rol(cadenas[clave_secreto], rol, resumen)
     tablas_prueba = [
@@ -628,6 +658,7 @@ def pasos_del_plan(args: argparse.Namespace) -> list[tuple[str, list[str]]]:
                 " (si falla: aviso y se continúa).",
                 f"Roles migrador y app_rw: CREATE ROLE ... {ATRIBUTOS_TEXTO} PASSWORD"
                 " (o ALTER ROLE con lo mismo y contraseña nueva si ya existen).",
+                "REVOKE CONNECT ON DATABASE <current_database()> FROM PUBLIC.",
                 "GRANT CONNECT ON DATABASE <current_database()> TO migrador, app_rw.",
                 "REVOKE CREATE ON SCHEMA public FROM PUBLIC.",
                 "GRANT USAGE, CREATE ON SCHEMA public TO migrador.",
@@ -642,6 +673,7 @@ def pasos_del_plan(args: argparse.Namespace) -> list[tuple[str, list[str]]]:
             [
                 "Mostrar current_user, la base y la versión mayor de PostgreSQL.",
                 f"Rol bit_rw: CREATE/ALTER ROLE ... {ATRIBUTOS_TEXTO} PASSWORD.",
+                "REVOKE CONNECT ON DATABASE <current_database()> FROM PUBLIC.",
                 "GRANT CONNECT ON DATABASE <current_database()> TO bit_rw.",
                 "GRANT USAGE ON SCHEMA public TO bit_rw.",
                 "REVOKE CREATE ON SCHEMA public FROM PUBLIC.",
@@ -654,6 +686,7 @@ def pasos_del_plan(args: argparse.Namespace) -> list[tuple[str, list[str]]]:
                 "Tabla rolname, rolsuper, rolbypassrls, rolcreaterole, rolcreatedb, rolcanlogin,"
                 " pg_has_role(rolname,'neon_superuser','member') para migrador, app_rw y bit_rw:"
                 " todo false salvo rolcanlogin.",
+                "Leer pg_database.datacl de cada base: PUBLIC no debe conservar CONNECT.",
                 "Conectar como cada rol nuevo (cadena del dueño cambiando solo usuario y contraseña):"
                 " select current_user; TLS activo en el cliente;"
                 " select ssl from pg_stat_ssl where pid = pg_backend_pid().",
