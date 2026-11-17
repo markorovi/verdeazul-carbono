@@ -107,6 +107,22 @@ Importante:
 - Con `DEBUG` activo, las páginas de error ocultan cualquier variable cuyo nombre contenga `DATABASE`, `KEY`, `SECRET` o `PASS`; aun así, no comparta capturas de esas páginas.
 - Si `ENTORNO` no está definida, se asume `produccion`, con todas las protecciones activas.
 
+## Firma de certificados
+
+- Los certificados se firman con Ed25519. La clave es una semilla de 32 bytes en base64 estándar en la variable `CERT_SIGNING_KEY`.
+- En desarrollo la carga `entorno_dev.ps1` desde el secreto `DEV_CERT_SIGNING_KEY`, junto con las demás variables. **Nunca** se versiona, se imprime ni se pega en chats o capturas.
+- La huella pública (SHA-256 de la clave pública) se obtiene sin sesión en `GET /certificados/clave-publica/` (campo `huella_sha256`). Es la que se usa como huella confiable.
+- Cualquiera puede verificar un certificado sin el proyecto, con `cryptography` instalado:
+
+  ```powershell
+  python scripts\verify_cert.py certificado.json --huella <huella_sha256>
+  ```
+
+  Códigos de salida: `0` válido, `1` firma inválida, `2` clave no confiable, `3` formato inválido, `4` firma coherente pero sin `--huella` (integridad verificada, origen no).
+- También están `/verificar/` (formulario) y `POST /api/verificar/` (JSON, hasta 65536 bytes).
+- Pruebas: `python scripts/probar_firma.py` con `. .\scripts\entorno_dev.ps1 -Pruebas`.
+- La clave de producción se crea y se rota fuera de Claude Code, solo por el dueño del proyecto.
+
 ## Producción
 
 - El corte y las migraciones de producción los hace **solo el dueño del proyecto**, con `scripts/entorno_prod.ps1` (modos `-Migrador` y `-App`) y `scripts/reporte_bd.py`. `entorno_prod.ps1` y `configurar_bd.py --entorno prod` exigen escribir `PRODUCCION`.

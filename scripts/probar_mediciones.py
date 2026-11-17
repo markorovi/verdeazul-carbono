@@ -24,10 +24,16 @@ from pathlib import Path
 from typing import Callable
 
 import psycopg
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from psycopg.types.json import Jsonb
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from mediciones import firma  # noqa: E402
 from mediciones.huella import calcular_huella  # noqa: E402
+
+# Clave de prueba en memoria: la base valida el payload y el key_id, no la firma.
+CLAVE_PRUEBA = Ed25519PrivateKey.generate()
 
 APP = "app_rw"
 MIGRADOR = "migrador"
@@ -254,14 +260,48 @@ class Escenario:
             (uuid.uuid4(), medicion, version, ciclo, aprobador, HUELLA_FALSA),
         )
 
-    def emitir(self, ctx: dict, emisor, version=None) -> uuid.UUID:
+    def documento(self, ctx: dict, certificado_id, version, ciclo: int, clave=CLAVE_PRUEBA,
+                  alterar_payload: dict | None = None, segundos_desfase: int = 0) -> dict:
+        """Documento firmado con los datos de la base, como lo arma la aplicación al emitir."""
+        numero, co2e, huella = self.sql(
+            "SELECT numero, co2e_toneladas, huella FROM mediciones_medicionversion WHERE id = %s", (version,)
+        ).fetchone()
+        aprobadores = [fila[0] for fila in self.sql(
+            "SELECT DISTINCT aprobador_id FROM mediciones_aprobacion"
+            " WHERE medicion_id = %s AND ciclo = %s AND version_id = %s",
+            (ctx["medicion"], ciclo, version),
+        ).fetchall()]
+        # La hora de la base evita depender del reloj del equipo que corre las pruebas.
+        momento = self.uno("SELECT now() + make_interval(secs => %s)", (segundos_desfase,))
+        payload = firma.construir_payload(
+            certificado_id, ctx["parcela"], ctx["periodo"], ctx["medicion"], numero, co2e, huella,
+            aprobadores, momento, clave=clave,
+        )
+        payload.update(alterar_payload or {})
+        return firma.firmar(payload, clave=clave)
+
+    def emitir(self, ctx: dict, emisor, version=None, alterar_payload: dict | None = None,
+               columnas: dict | None = None, segundos_desfase: int = 0) -> uuid.UUID:
         self.actor(emisor)
-        ciclo = self.uno("SELECT ciclo FROM mediciones_medicion WHERE id = %s", (ctx["medicion"],))
+        version = version or ctx["version"]
+        ciclo = self.uno("SELECT ciclo FROM mediciones_medicion WHERE id = %s", (ctx["medicion"],)) or 1
         certificado_id = uuid.uuid4()
+        documento = self.documento(ctx, certificado_id, version, ciclo, alterar_payload=alterar_payload,
+                                   segundos_desfase=segundos_desfase)
+        valores = {
+            "payload": documento["payload"],
+            "firma": documento["signature"],
+            "clave_publica": documento["public_key"],
+            "alg": documento["alg"],
+            "key_id": documento["payload"]["key_id"],
+            **(columnas or {}),
+        }
         self.sql(
-            "INSERT INTO mediciones_certificado (id, parcela_id, periodo_id, medicion_id, version_id, ciclo, estado, emitido_en)"
-            " VALUES (%s, %s, %s, %s, %s, %s, 'vigente', now())",
-            (certificado_id, ctx["parcela"], ctx["periodo"], ctx["medicion"], version or ctx["version"], ciclo or 1),
+            "INSERT INTO mediciones_certificado (id, parcela_id, periodo_id, medicion_id, version_id, ciclo, estado,"
+            " emitido_en, payload, firma, clave_publica, alg, key_id)"
+            " VALUES (%s, %s, %s, %s, %s, %s, 'vigente', now(), %s, %s, %s, %s, %s)",
+            (certificado_id, ctx["parcela"], ctx["periodo"], ctx["medicion"], version, ciclo,
+             Jsonb(valores["payload"]), valores["firma"], valores["clave_publica"], valores["alg"], valores["key_id"]),
         )
         return certificado_id
 

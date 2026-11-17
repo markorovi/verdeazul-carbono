@@ -1,0 +1,25 @@
+{% extends "usuarios/base.html" %}
+
+{% block titulo %}Verificar certificado - Verdeazul Carbono{% endblock %}
+
+{% block contenido %}
+  <h1>Verificar certificado</h1>
+  {% if no_disponible %}
+    <p role="alert">La verificación no está disponible en este momento.</p>
+  {% else %}
+    <p>Pegue el certificado en formato JSON. Se comprueba la firma Ed25519 y que la clave sea la del sistema.</p>
+    <form method="post" action="{% url 'verificar' %}">
+      {% csrf_token %}
+      <p>
+        <label for="certificado">Certificado (JSON)</label><br>
+        <textarea id="certificado" name="certificado" rows="16" cols="80" required>{{ texto }}</textarea>
+      </p>
+      <p><button type="submit">Verificar</button></p>
+    </form>
+    {% if resultado %}
+      <h2>Resultado</h2>
+      <p role="status">Estado: {{ resultado.estado }}</p>
+      <p>Detalle: {{ resultado.detalle }}</p>
+    {% endif %}
+  {% endif %}
+{% endblock %}

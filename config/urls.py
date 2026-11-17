@@ -14,4 +14,5 @@ def inicio(request):
 urlpatterns = [
     path("", inicio),
     path("", include("usuarios.urls")),
+    path("", include("mediciones.urls")),
 ]

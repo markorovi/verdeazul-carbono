@@ -213,12 +213,19 @@ class Certificado(ModeloConUUID):
     anulado_en = models.DateTimeField(null=True, blank=True)
     anulado_por = _usuario(null=True, blank=True)
     justificacion_anulacion = models.TextField(null=True, blank=True)
+    # Documento firmado (mediciones.firma). La base valida el payload; la firma se verifica fuera.
+    payload = models.JSONField()
+    firma = models.TextField()
+    clave_publica = models.TextField()
+    alg = models.CharField(max_length=10)
+    key_id = models.CharField(max_length=16)
 
     class Meta:
         constraints = [
             models.CheckConstraint(
                 condition=Q(estado__in=ESTADOS_CERTIFICADO), name="certificado_estado_valido"
             ),
+            models.CheckConstraint(condition=Q(alg="Ed25519"), name="certificado_alg_ed25519"),
             models.CheckConstraint(condition=Q(ciclo__gte=1), name="certificado_ciclo_positivo"),
             models.CheckConstraint(
                 condition=(
