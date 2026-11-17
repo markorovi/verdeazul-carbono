@@ -107,6 +107,12 @@ Importante:
 - Con `DEBUG` activo, las páginas de error ocultan cualquier variable cuyo nombre contenga `DATABASE`, `KEY`, `SECRET` o `PASS`; aun así, no comparta capturas de esas páginas.
 - Si `ENTORNO` no está definida, se asume `produccion`, con todas las protecciones activas.
 
+## Producción
+
+- El corte y las migraciones de producción los hace **solo el dueño del proyecto**, con `scripts/entorno_prod.ps1` (modos `-Migrador` y `-App`) y `scripts/reporte_bd.py`. `entorno_prod.ps1` y `configurar_bd.py --entorno prod` exigen escribir `PRODUCCION`.
+- Nunca se ejecutan desde Claude Code ni desde otra herramienta automática.
+- `python scripts/reporte_bd.py` revisa en modo de solo lectura la configuración de la base a la que apunte `DATABASE_URL` (dev o producción): roles, CONNECT de PUBLIC, esquema, RLS, disparadores, funciones, privilegios de `app_rw` y migraciones. Termina con código 1 si encuentra un `[FALLO]`.
+
 ## Reglas del equipo
 
 - Trabaje en ramas `feature/<nombre>` y abra un pull request hacia `main`. Otra persona del equipo debe revisarlo antes de fusionarlo.
