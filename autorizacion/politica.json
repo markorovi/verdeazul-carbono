@@ -1,0 +1,9 @@
+{
+  "mfa_reciente_segundos": 900,
+  "operaciones_criticas": ["O1.Ap", "O1.Rs", "O2.Ci", "O3.An", "O3.Ex", "O4.Au", "O6.AR", "O6.Ba", "O6.Ae"],
+  "proyecciones": {"R1": "tecnico", "R5": "auditor", "R6": "dueno"},
+  "objetos_emergencia": ["O1", "O2", "O3", "O4", "O5"],
+  "roles_suplibles": ["R1", "R2"],
+  "condiciones_bitacora": ["Cd8", "Cd10", "Cd11", "Cd12", "Cd17", "Cd20"],
+  "horario_laboral": {"zona": "America/Costa_Rica", "dias_iso": [1, 2, 3, 4, 5], "desde_hora": 6, "hasta_hora": 18}
+}

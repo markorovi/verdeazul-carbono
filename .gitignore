@@ -12,3 +12,5 @@ CLAUDE.md
 *.db-journal
 local.db
 .env.*
+# Ruta local del binario de OPA (fuera del repositorio)
+.opa_local.json

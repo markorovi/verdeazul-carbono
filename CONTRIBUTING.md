@@ -312,6 +312,93 @@ python scripts/probar_catalogo.py
 python scripts/probar_cuentas.py
 ```
 
+## Autorización
+
+La capa `autorizacion/` separa el PEP y el PIP (en Django) del PDP (OPA, en un servicio aparte).
+
+- **Matriz:** `autorizacion/matriz.json` es la fuente única, con 41 operaciones, 8 objetos, 7 roles y 60 permisos. La política Rego y el motor de referencia en Python la leen igual.
+- **Contrato** de entrada y salida del PDP: `autorizacion/CONTRATO.md`.
+- **Orden:** autenticación, RBAC, ABAC, H2 y servicio, con deny-overrides y denegación por defecto.
+
+### Por qué hay dos capas
+
+- **Política (PDP):** decide **quién** puede intentar una operación. Usa roles, vínculos, ventana, segundo factor, H2, proyección y registro de lecturas, a partir de hechos que el PIP calcula y que no llevan datos personales.
+- **Servicios:** hacen cumplir las condiciones que dependen del **estado y del historial** dentro de su transacción, con bloqueos. Una política no puede garantizar esas condiciones sin carreras.
+- **Comprobación cruzada:** la política devuelve en `condiciones_servicio` las condiciones de servicio que exige la operación. El PEP comprueba que el servicio invocado declare aplicarlas (`autorizacion.pep.servicios()`).
+
+| Capa | Condiciones |
+| --- | --- |
+| Política (OPA y `autorizacion/motor.py`) | Cd1, Cd2, Cd3, Cd4, Cd9, Cd16, Cd17, Cd21, Cd22, más el perfil de emergencia (lectura de Cd24) |
+| Servicio (transaccional) | Cd5, Cd6, Cd7, Cd8, Cd10, Cd11, Cd12, Cd13, Cd14, Cd15, Cd18, Cd19, Cd20, Cd23, Cd24 |
+
+### Fail-closed
+
+- Deniegan:
+  - una falla del PIP o del PDP (timeout de 2 s, error HTTP o respuesta fuera del contrato);
+  - la bitácora no disponible, en las operaciones con Cd8, Cd10, Cd11, Cd12, Cd17 o Cd20;
+  - el registro del intento que falla.
+- Excepción: si los contadores de H2 no se pueden calcular, Cd9 falla degradado. Concede las parcelas del vínculo habitual y deniega las ajenas y toda exportación.
+- El cliente nunca ve la condición de una denegación (`Denegado.publico()`).
+
+### Selector de backend
+
+| Variable | Valores |
+| --- | --- |
+| `PDP_BACKEND` | `opa` (por defecto) o `python` (motor de referencia). Nunca se cambia de backend solo ante una falla: se deniega. |
+| `OPA_URL` | URL del OPA. En dev, por defecto `http://127.0.0.1:8181`. |
+| `OPA_AUDIENCE` | En Cloud Run, la audiencia del servicio privado de OPA. Con ella el cliente agrega un token de identidad (`google-auth`). |
+| `BITACORA_CLIENTE` | Ruta a la clase de bitácora. El PEP no arranca sin ella; la implementación real llega con la bitácora. |
+
+### OPA local
+
+El binario no se versiona.
+
+1. Descargue la versión fijada (`v1.22.4`) del release oficial en GitHub: `opa_windows_amd64.exe` y su `.sha256`.
+2. Verifique el SHA-256 y guarde el binario fuera del repositorio. Por ejemplo, en `%LOCALAPPDATA%\verdeazul\herramientas\opa\v1.22.4\opa.exe`.
+3. Escriba su ruta en `.opa_local.json`, en la raíz del repositorio; ese archivo está ignorado por git:
+
+   ```json
+   {"opa": "C:\\ruta\\al\\opa.exe", "version": "v1.22.4"}
+   ```
+
+Comprobar y probar la política:
+
+```powershell
+$opa = (Get-Content .opa_local.json -Raw -Encoding UTF8 | ConvertFrom-Json).opa
+& $opa check --strict policy/
+& $opa fmt -l policy/
+& $opa test policy/ verdeazul.matriz:autorizacion/matriz.json verdeazul.politica:autorizacion/politica.json
+```
+
+Servidor local, si quiere usar `PDP_BACKEND=opa` fuera de las pruebas:
+
+```powershell
+& $opa run --server --addr=127.0.0.1:8181 policy/autorizacion.rego verdeazul.matriz:autorizacion/matriz.json verdeazul.politica:autorizacion/politica.json
+```
+
+La imagen de despliegue se describe en `deploy/opa/Dockerfile`: `openpolicyagent/opa:1.22.4-static`, sin root y en el puerto 8080.
+
+### Registro de accesos y retención
+
+- `autorizacion_registroacceso` guarda cada intento de lectura y es la fuente de los contadores de H2 y de las alertas por Cd2.
+- Es inmutable y tiene RLS: cada actor solo ve e inserta sus propias filas.
+- **Retención de 24 meses**, por política. No hay purga automática.
+
+### Pruebas
+
+```powershell
+. .\scripts\entorno_dev.ps1 -Pruebas
+python manage.py test autorizacion
+python scripts/probar_autorizacion.py
+```
+
+`probar_autorizacion.py` hace lo siguiente:
+
+1. Arranca un OPA local con el binario de `.opa_local.json`.
+2. Hace el barrido de la matriz con los dos backends.
+3. Corre los 70 casos de punta a punta (PEP, PIP, política y servicios) comparando OPA con Python en cada decisión.
+4. Prueba los fallos que deben denegar, el perfil de emergencia y la alerta por Cd2.
+
 ## Producción
 
 - El corte y las migraciones de producción los hace **solo el dueño del proyecto**, con `scripts/entorno_prod.ps1` (modos `-Migrador` y `-App`) y `scripts/reporte_bd.py`. `entorno_prod.ps1` y `configurar_bd.py --entorno prod` exigen escribir `PRODUCCION`.

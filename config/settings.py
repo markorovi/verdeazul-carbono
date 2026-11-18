@@ -73,6 +73,7 @@ INSTALLED_APPS = [
     'usuarios',
     'catalogo',
     'mediciones',
+    'autorizacion',
 ]
 
 AUTH_USER_MODEL = "usuarios.Usuario"

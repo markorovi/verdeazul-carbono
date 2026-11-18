@@ -282,14 +282,17 @@ def cambiar_propietarios(actor, finca_id, *, agregar=(), retirar=()) -> Propieta
 
 @_servicio
 def modificar_parcela(actor, parcela_id, *, codigo: str | None = None, wkt: str | None = None) -> ParcelaResultado:
-    """Cambia el código o los límites. Cd15: sin mediciones en curso y, si cambian los límites, sin
-    certificado vigente. Los traslapes se rechazan igual que al crear (UNIDAD).
+    """Cambia el código o los límites. Cd14: el actor no es propietario de la finca (la propiedad se
+    hereda, igual que al crear la parcela). Cd15: sin mediciones en curso y, si cambian los límites,
+    sin certificado vigente. Los traslapes se rechazan igual que al crear (UNIDAD).
     """
     if codigo is None and wkt is None:
         raise ValueError("No hay cambios que aplicar a la parcela.")
     if codigo is not None and not codigo.strip():
         raise ValueError("La parcela necesita un código.")
     parcela = _parcela_bloqueada(parcela_id)
+    if actor.pk in _propietarios_vigentes(parcela.finca_id):
+        raise ReglaIncumplida("Cd14", "un propietario de la finca no modifica sus parcelas")
     en_curso, certificada = _situacion_de_mediciones([parcela.pk])
     if en_curso:
         raise ReglaIncumplida("Cd15", "la parcela tiene mediciones en curso")
