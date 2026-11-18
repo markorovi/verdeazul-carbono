@@ -281,12 +281,14 @@ def con_ahora(momento):
     return mock.patch.object(servicios, "_ahora", return_value=momento)
 
 
-def con_plazo_de_verificacion(dias: int = PLAZO_VERIFICACION_PRUEBA):
-    """Simula el parámetro del plazo de verificación, que la base no tiene sembrado."""
+def sin_plazo_de_verificacion():
+    """Simula que falta el parámetro del plazo de verificación, para comprobar que se falla cerrado."""
     original = plazos.leer_parametro
 
     def lector(clave):
-        return Decimal(dias) if clave == plazos.CLAVE_PLAZO_VERIFICACION else original(clave)
+        if clave == plazos.CLAVE_PLAZO_VERIFICACION:
+            raise ParametroNoConfigurado(f"Falta el parámetro de política {clave}.")
+        return original(clave)
 
     return mock.patch.object(plazos, "leer_parametro", side_effect=lector)
 
@@ -481,7 +483,7 @@ def r02():
     d = Datos()
     ctx = d.presentada_y_cerrada()
     inicial = servicios.reasignar_verificacion(ctx["r7"], ctx["medicion"], ctx["r2"].pk)
-    with con_plazo_de_verificacion(), con_ahora(d.cerrado_en(ctx) + timedelta(days=3)):
+    with con_ahora(d.cerrado_en(ctx) + timedelta(days=3)):
         obtenido = condicion(lambda: servicios.reasignar_verificacion(ctx["r7"], ctx["medicion"], ctx["r2b"].pk))
     return resultado(inicial.causa == servicios.CAUSA_SIN_ASIGNAR and obtenido == "Cd19",
                      f"asignación inicial {inicial.causa}; a los 3 días {obtenido}")
@@ -491,7 +493,7 @@ def r03():
     d = Datos()
     ctx = d.presentada_y_cerrada()
     servicios.reasignar_verificacion(ctx["r7"], ctx["medicion"], ctx["r2"].pk)
-    with con_plazo_de_verificacion(), con_ahora(d.cerrado_en(ctx) + timedelta(days=30)):
+    with con_ahora(d.cerrado_en(ctx) + timedelta(days=30)):
         r = servicios.reasignar_verificacion(ctx["r7"], ctx["medicion"], ctx["r2b"].pk)
     return resultado(r.causa == servicios.CAUSA_PLAZO, f"pasa ({r.causa})")
 
@@ -500,9 +502,14 @@ def r04():
     d = Datos()
     ctx = d.presentada_y_cerrada()
     servicios.reasignar_verificacion(ctx["r7"], ctx["medicion"], ctx["r2"].pk)
-    with con_ahora(d.cerrado_en(ctx) + timedelta(days=30)):
+    with sin_plazo_de_verificacion(), con_ahora(d.cerrado_en(ctx) + timedelta(days=30)):
         obtenido = condicion(lambda: servicios.reasignar_verificacion(ctx["r7"], ctx["medicion"], ctx["r2b"].pk))
     return resultado(obtenido == "sin parámetro", obtenido)
+
+
+def r08():
+    valor = plazos.leer_parametro(plazos.CLAVE_PLAZO_VERIFICACION)
+    return resultado(valor == Decimal(PLAZO_VERIFICACION_PRUEBA), f"{plazos.CLAVE_PLAZO_VERIFICACION} = {valor}")
 
 
 def r05():
@@ -858,11 +865,12 @@ PRUEBAS = [
     ("D02", "Devolver con período abierto", "Cd7", dv02, False),
     ("R01", "Reasignar: el asignado es quien registró", "pasa (Cd8 del asignado)", r01, False),
     ("R02", "Reasignar con verificador apto y plazo vigente", "Cd19", r02, False),
-    ("R03", "Reasignar con plazo vencido (parámetro simulado)", "pasa (plazo)", r03, False),
-    ("R04", "Reasignar por plazo sin el parámetro en la base", "sin parámetro", r04, False),
+    ("R03", "Reasignar con plazo vencido", "pasa (plazo)", r03, False),
+    ("R04", "Reasignar por plazo con el parámetro ausente (simulado)", "sin parámetro", r04, False),
     ("R05", "Reasignar a quien registró", "Cd8", r05, False),
     ("R06", "Reasignar a un destino sin R2", "Cd19", r06, False),
     ("R07", "Columna verificador_asignado solo la cambia R7", "23000; 23000 o sin efecto; 42501", r07, False),
+    ("R08", "Parámetro tver_dias_habiles sembrado", "15", r08, False),
     ("PE01", "Abrir período", "abierto", pe01, False),
     ("PE02", "Cerrar período", "cerrado con fecha y autor", pe02, False),
     ("PE03", "Cerrar un período ya cerrado", "Cd5", pe03, False),

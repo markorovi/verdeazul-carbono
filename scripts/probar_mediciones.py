@@ -80,6 +80,10 @@ PARAMETROS_ESPERADOS = {
     "h2_wc_fuera_duro": Decimal("8"),
     "h2_wl_blando": Decimal("40"),
     "h2_wl_duro": Decimal("100"),
+    "tver_dias_habiles": Decimal("15"),
+    "waud_dias_anuales": Decimal("30"),
+    "temg_horas": Decimal("4"),
+    "trev_emg_horas": Decimal("24"),
 }
 
 
@@ -1141,7 +1145,7 @@ class Resultado:
 
 
 PRUEBAS = [
-    ("P01", "Parámetros sembrados con los valores de la política", "10 valores correctos", p01),
+    ("P01", "Parámetros sembrados con los valores de la política", "14 valores correctos", p01),
     ("P02", "Parámetros: UPDATE, DELETE y TRUNCATE rechazados (app_rw y migrador)", "42501 x3; 23000 x3", p02),
     ("PE01", "Abrir período como R1 a R6 o sin actor", "23000 x7", pe01),
     ("PE02", "Abrir período como R7", PASA, pe02),

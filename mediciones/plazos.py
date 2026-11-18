@@ -14,8 +14,8 @@ from mediciones.models import PoliticaParametro
 
 CLAVE_VALTO = "valto_tco2e"
 CLAVE_PLAZO_ENMIENDA = "tenm_dias"
-# Plazo de verificación (Cd19). No está sembrado por las migraciones 0001 a 0006: mientras falte, la
-# reasignación por plazo falla cerrada con ParametroNoConfigurado.
+# Plazo de verificación (Cd19), sembrado por la migración 0008. Si faltara, la reasignación por plazo
+# falla cerrada con ParametroNoConfigurado.
 CLAVE_PLAZO_VERIFICACION = "tver_dias_habiles"
 
 SABADO = 5

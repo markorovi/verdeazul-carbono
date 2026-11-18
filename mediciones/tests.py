@@ -13,7 +13,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from django.db import IntegrityError
 from django.test import SimpleTestCase
 
-from mediciones import firma, plazos, servicios
+from mediciones import alertas, firma, plazos, servicios
 from mediciones.errores import ParametroNoConfigurado, ReglaIncumplida
 from mediciones.huella import calcular_huella, formatear_co2e
 
@@ -275,3 +275,32 @@ class ReglaDeLaBaseTests(SimpleTestCase):
                       _ErrorDeBase("23505", "", "otra_restriccion"), _ErrorDeBase("42501", "permiso"), None):
             with self.subTest(causa=causa):
                 self.assertIsNone(servicios._regla_de_la_base(_error_django(causa)))
+
+class AlertasTests(SimpleTestCase):
+    actor = uuid.UUID("33333333-3333-3333-3333-333333333333")
+    cuenta = uuid.UUID("44444444-4444-4444-4444-444444444444")
+
+    def _creada_por_el_actor(self, valor: bool):
+        consulta = mock.MagicMock()
+        consulta.filter.return_value.exists.return_value = valor
+        return mock.patch.object(alertas.Usuario, "objects", consulta)
+
+    def test_prioridad(self):
+        with self._creada_por_el_actor(True):
+            self.assertEqual(alertas.prioridad_para(self.actor, self.cuenta), alertas.PRIORITARIA)
+        with self._creada_por_el_actor(False):
+            self.assertEqual(alertas.prioridad_para(self.actor, self.cuenta), alertas.AVISO)
+
+    def test_sin_cuenta_afectada_es_normal(self):
+        with self._creada_por_el_actor(True):
+            self.assertEqual(alertas.prioridad_para(self.actor, None), alertas.AVISO)
+
+    def test_rechazos_de_la_base(self):
+        casos = [
+            _ErrorDeBase("23514", "", "alerta_resolucion_independiente"),
+            _ErrorDeBase("23000", "Alerta: ya fue resuelta; no se vuelve a resolver."),
+        ]
+        for causa in casos:
+            with self.subTest(causa=str(causa)):
+                self.assertEqual(alertas._regla_de_la_base(_error_django(causa)).condicion, "Cd18")
+        self.assertIsNone(alertas._regla_de_la_base(_error_django(_ErrorDeBase("23514", "", "otra"))))

@@ -256,6 +256,10 @@ class Certificado(ModeloConUUID):
 
 
 class Alerta(ModeloConUUID):
+    """Aviso o alerta. `usuario` es quien originó el evento; `cuenta_afectada`, la cuenta sobre la
+    que recae (técnico asignado, propietario). Ninguno de los dos puede resolverla (Cd18).
+    """
+
     class Prioridad(models.TextChoices):
         AVISO = "aviso", "Aviso"
         PRIORITARIA = "prioritaria", "Prioritaria"
@@ -263,6 +267,7 @@ class Alerta(ModeloConUUID):
     tipo = models.CharField(max_length=100)
     prioridad = models.CharField(max_length=12, choices=Prioridad.choices)
     usuario = _usuario(null=True, blank=True)
+    cuenta_afectada = _usuario(null=True, blank=True)
     parcela = models.ForeignKey(
         "catalogo.Parcela", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
     )
@@ -271,6 +276,7 @@ class Alerta(ModeloConUUID):
     creada_en = models.DateTimeField(default=timezone.now)
     resuelta_en = models.DateTimeField(null=True, blank=True)
     resuelta_por = _usuario(null=True, blank=True)
+    justificacion_resolucion = models.TextField(null=True, blank=True)
 
     class Meta:
         constraints = [
@@ -281,5 +287,11 @@ class Alerta(ModeloConUUID):
                 condition=(Q(resuelta_en__isnull=True) & Q(resuelta_por__isnull=True))
                 | (Q(resuelta_en__isnull=False) & Q(resuelta_por__isnull=False)),
                 name="alerta_resolucion_coherente",
+            ),
+            # Con usuario o cuenta afectada nulos la comparación es nula y la restricción se cumple.
+            models.CheckConstraint(
+                condition=Q(resuelta_por__isnull=True)
+                | (~Q(resuelta_por=F("usuario")) & ~Q(resuelta_por=F("cuenta_afectada"))),
+                name="alerta_resolucion_independiente",
             ),
         ]

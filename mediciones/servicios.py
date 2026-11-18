@@ -16,7 +16,6 @@ serializar todo el período) salvo al cerrarlo, que se toma FOR UPDATE.
 
 from __future__ import annotations
 
-import functools
 import hashlib
 import re
 import uuid
@@ -24,15 +23,13 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 
-from django.db import DatabaseError, connection, transaction
+from django.db import DatabaseError, connection
 from django.db.models import Count
 from django.db.models.functions import Now
 
-from mediciones import firma, plazos
-from mediciones.contexto import como_actor
+from mediciones import alertas, firma, plazos, transaccion
 from mediciones.errores import NoEncontrado, ReglaIncumplida
 from mediciones.models import (
-    Alerta,
     Aprobacion,
     Certificado,
     Enmienda,
@@ -59,7 +56,7 @@ RECHAZADA = Enmienda.Estado.RECHAZADA
 # Mismo mínimo que las restricciones CHECK de la base para motivos y justificaciones.
 LARGO_MINIMO_TEXTO = 10
 ROL_VERIFICADOR = "R2"
-TIPO_AVISO_ANULACION = "anulacion_certificado"
+TIPO_AVISO_ANULACION = alertas.TIPO_ANULACION_CERTIFICADO
 # La base calcula la huella de cada versión; este valor solo ocupa la columna en el INSERT.
 HUELLA_PROVISIONAL = "0" * 64
 
@@ -165,27 +162,11 @@ def _regla_de_la_base(error: DatabaseError) -> ReglaIncumplida | None:
     return None
 
 
-def _servicio(funcion):
-    """Transacción con el actor declarado; si algo falla no queda ningún cambio del servicio."""
-
-    @functools.wraps(funcion)
-    def envoltura(actor, *args, **kwargs):
-        try:
-            with transaction.atomic(), como_actor(actor.pk):
-                return funcion(actor, *args, **kwargs)
-        except DatabaseError as error:
-            regla = _regla_de_la_base(error)
-            if regla is None:
-                raise
-            raise regla from error
-
-    return envoltura
+_servicio = transaccion.servicio(_regla_de_la_base)
 
 
 def _hora_de_la_base() -> datetime:
-    with connection.cursor() as cursor:
-        cursor.execute("SELECT now()")
-        return cursor.fetchone()[0]
+    return transaccion.hora_de_la_base()
 
 
 def _ahora() -> datetime:
@@ -492,10 +473,10 @@ def cerrar_periodo(actor, periodo_id) -> PeriodoResultado:
 
 def _registrar_aviso_gerencia(certificado: Certificado, actor) -> None:
     """Aviso prioritario a la gerencia. Corre en la transacción de la anulación: si falla, no se anula."""
-    Alerta.objects.create(
-        tipo=TIPO_AVISO_ANULACION,
-        prioridad=Alerta.Prioridad.PRIORITARIA,
-        usuario_id=actor.pk,
+    alertas.registrar_aviso(
+        TIPO_AVISO_ANULACION,
+        actor.pk,
+        prioridad=alertas.PRIORITARIA,
         parcela_id=certificado.parcela_id,
         medicion_id=certificado.medicion_id,
         detalle={"certificado_id": str(certificado.pk), "ciclo": certificado.ciclo},

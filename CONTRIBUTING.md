@@ -180,9 +180,9 @@ Se leen de `PoliticaParametro`; nunca se escriben en el código.
 | --- | --- | --- |
 | `valto_tco2e` | Volumen alto | Sembrada |
 | `tenm_dias` | Plazo de enmienda | Sembrada |
-| `tver_dias_habiles` | Plazo de verificación (Cd19) | Falta |
+| `tver_dias_habiles` | Plazo de verificación (Cd19) | Sembrada (0008) |
 
-Mientras falte `tver_dias_habiles`, la reasignación por plazo falla cerrada. Las demás causas de reasignación siguen disponibles.
+Si faltara un parámetro, el servicio falla cerrado con `ParametroNoConfigurado`.
 
 - Los días hábiles van de lunes a viernes, sobre fechas UTC y sin feriados.
 - La hora de los plazos sale de `now()` de la base (`servicios._ahora`). La fecha de emisión del certificado también usa `now()`, pero no depende de esa función.
@@ -197,6 +197,60 @@ python scripts/probar_servicios.py
 ```
 
 Corre como `app_rw`. Las dos pruebas que necesitan un cierre en el pasado corren como `migrador`, dentro de la transacción revertida. Termina comparando los conteos con los iniciales.
+
+## Servicios de catálogo y alertas
+
+`catalogo/servicios.py` (O5) y `mediciones/alertas.py` (O8.Rs) siguen el mismo patrón que los servicios de mediciones:
+
+- el actor va primero;
+- cada servicio es una transacción con `como_actor`;
+- cada violación lanza `ReglaIncumplida`, sin dejar cambios.
+
+El rol del actor lo decide la autorización. El rol de la cuenta **destino** (R1 para un técnico, R6 para un propietario) sí lo comprueba el servicio, porque es un dato de la cuenta afectada.
+
+### Servicios y condiciones
+
+| Servicio | Condiciones |
+| --- | --- |
+| `crear_finca` | Uno o varios propietarios (PROPIEDAD). Cd14: todos con R6 vigente y ninguno es el actor. Un aviso por propietario. |
+| `crear_parcela` | Finca activa (VIGENCIA). Cd14: el actor no es propietario de la finca. Sin traslape (UNIDAD) y con polígono válido (GEOMETRIA). Código único en la finca (CODIGO). Un aviso por propietario. |
+| `cambiar_propietarios` | Cd14: nadie se agrega a sí mismo y todo agregado tiene R6. Cd15: sin mediciones en curso en la finca. La finca conserva al menos un propietario (PROPIEDAD). Un aviso por cuenta agregada o retirada. Los certificados vigentes no lo impiden y no cambian. |
+| `modificar_parcela` | Cd15: sin mediciones en curso; si cambian los límites, tampoco certificado vigente. Sin traslape (UNIDAD). |
+| `asignar_tecnico` | Cd14: el destino es otra persona, tiene R1 vigente y el vencimiento es futuro. Avisa al técnico asignado. Una cobertura temporal es otra asignación con vencimiento. |
+| `dar_de_baja_parcela` | Cd15: sin mediciones en curso ni certificado vigente. Baja lógica: no hay borrado físico y `app_rw` no tiene DELETE. |
+| `resolver_alerta` | Cd18: alerta pendiente, justificación de 10 caracteres o más, y el actor no es parte. Partes: quien originó el evento (`usuario`) y la cuenta afectada (`cuenta_afectada`). |
+
+- **Mediciones en curso:** `borrador`, `presentada`, `devuelta` o `aprobada`.
+- **Certificado vigente:** se reconoce por el estado `certificada`, que la base mantiene solo mientras el certificado está vigente.
+- **Lectura para Cd15:** el administrador de catálogo (R3) no tiene rol de lectura de mediciones. Por eso el servicio declara `app.proposito = 'catalogo'` solo durante esa consulta. La política `medicion_estado_para_catalogo` deja ver entonces el estado de las mediciones, y nada más: ni versiones, ni aprobaciones, ni certificados.
+
+### Avisos
+
+- `mediciones.alertas.registrar_aviso` es el único punto de registro de avisos, incluido el aviso de anulación de certificados.
+- **Falla cerrado:** el aviso se registra en la misma transacción que la operación; si no se puede registrar, la operación no ocurre.
+- **Tipos:** `alta_finca`, `alta_parcela`, `cambio_propietarios`, `asignacion_tecnico` y `anulacion_certificado`.
+- **Prioridad:** es `prioritaria` cuando quien opera dio de alta la cuenta afectada (`usuarios_usuario.creado_por`). En los demás casos es `aviso`, y también mientras `creado_por` esté vacío.
+- **Defensa en la base:** la restricción `alerta_resolucion_independiente` repite Cd18: quien resuelve no puede ser parte de la alerta. La justificación mínima la exige el servicio.
+
+### Parámetros sembrados
+
+| Clave | Valor | Uso |
+| --- | --- | --- |
+| `valto_tco2e` | 500 | Volumen alto (t CO2e) |
+| `tenm_dias` | 90 | Plazo de enmienda (días) |
+| `tver_dias_habiles` | 15 | Plazo de verificación (días hábiles) |
+| `waud_dias_anuales` | 30 | Ventana del auditor (días por año) |
+| `temg_horas` | 4 | Vigencia máxima del acceso de emergencia |
+| `trev_emg_horas` | 24 | Revisión del acceso de emergencia |
+
+También siguen sembrados `wc_horas`, `wl_dias` y los `h2_*` de la regla H2.
+
+### Pruebas
+
+```powershell
+. .\scripts\entorno_dev.ps1 -Pruebas
+python scripts/probar_catalogo.py
+```
 
 ## Producción
 

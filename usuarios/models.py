@@ -63,6 +63,11 @@ class Usuario(ModeloConUUID, AbstractBaseUser):
     totp_ultimo_paso = models.BigIntegerField(null=True)
     intentos_fallidos = models.PositiveSmallIntegerField(default=0, db_default=0)
     bloqueado_hasta = models.DateTimeField(null=True)
+    # Quién dio de alta la cuenta. Se escribe solo al insertar (app_rw no tiene UPDATE sobre ella);
+    # define la prioridad de los avisos cuando esa misma persona opera sobre la cuenta.
+    creado_por = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
 
     objects = UsuarioManager()
 
