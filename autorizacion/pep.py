@@ -23,6 +23,7 @@ guarda solo la clase de la excepción, nunca su mensaje.
 from __future__ import annotations
 
 import hashlib
+import logging
 import re
 import time
 from dataclasses import dataclass
@@ -46,6 +47,7 @@ from usuarios import autenticacion
 from usuarios.models import RolUsuario
 
 DEFECTO = motor.DEFECTO
+logger = logging.getLogger("verdeazul.autorizacion")
 MENSAJE_GENERICO = "No tiene permiso para realizar esta operación."
 NIVEL_SIN_SESION = 0
 NIVEL_CONTRASENA = 1
@@ -339,8 +341,9 @@ class PEP:
                         TIPO_DENEGACIONES_CD2, sesion.usuario.pk, prioridad=alertas.PRIORITARIA,
                         detalle={"denegaciones": denegaciones},
                     )
-        except Exception:
-            pass
+        except Exception as error:
+            # Mejor esfuerzo: la denegación sigue aunque el aviso no se registre. Solo la clase.
+            logger.warning("evento=aviso_cd2_no_registrado clase=%s", type(error).__name__)
 
     # ----------------------------------------------------------------------- lecturas y decisiones
 
@@ -409,8 +412,9 @@ class PEP:
         if lectura:
             try:
                 self._registrar_acceso(sesion, operacion, hechos, RegistroAcceso.Resultado.DENEGADO, condicion)
-            except Exception:
-                pass
+            except Exception as error:
+                # La lectura ya se deniega; perder este registro no concede nada. Solo la clase.
+                logger.warning("evento=acceso_denegado_no_registrado clase=%s", type(error).__name__)
         return Denegado(condicion, motivo)
     # ----------------------------------------------------------------------- escrituras
 

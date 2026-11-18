@@ -15,6 +15,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from urllib.parse import urlsplit
 
 from django.core.exceptions import ImproperlyConfigured
 
@@ -90,6 +91,8 @@ class ClienteOPA:
 
     def __init__(self, url: str | None = None, timeout: float = TIMEOUT_SEGUNDOS, audiencia: str | None = None):
         self.url = (url or OPA_URL_LOCAL).rstrip("/") + RUTA_DECISION
+        if urlsplit(self.url).scheme not in ("http", "https"):
+            raise ImproperlyConfigured("OPA_URL debe usar http o https.")
         self.timeout = timeout
         self._token = TokenDeIdentidad(audiencia) if audiencia else None
 
@@ -101,7 +104,8 @@ class ClienteOPA:
         try:
             if self._token is not None:
                 solicitud.add_header("Authorization", f"Bearer {self._token.valor()}")
-            with urllib.request.urlopen(solicitud, timeout=self.timeout) as respuesta:
+            # Bandit B310 aceptado: el esquema se valida en __init__ (solo http o https).
+            with urllib.request.urlopen(solicitud, timeout=self.timeout) as respuesta:  # nosec B310
                 if respuesta.status != 200:
                     raise PDPNoDisponible(f"OPA respondió HTTP {respuesta.status}.")
                 datos = respuesta.read(MAX_BYTES_RESPUESTA + 1)

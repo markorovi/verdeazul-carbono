@@ -304,3 +304,75 @@ class AlertasTests(SimpleTestCase):
             with self.subTest(causa=str(causa)):
                 self.assertEqual(alertas._regla_de_la_base(_error_django(causa)).condicion, "Cd18")
         self.assertIsNone(alertas._regla_de_la_base(_error_django(_ErrorDeBase("23514", "", "otra"))))
+
+
+class VerificadorIndependienteTests(SimpleTestCase):
+    """scripts/verificar_certificado.py como lo usaría un tercero: proceso aparte, sin el proyecto en
+    el camino de importación y con un certificado firmado en la prueba (nunca con la clave real)."""
+
+    SCRIPT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts",
+                          "verificar_certificado.py")
+
+    def setUp(self):
+        import tempfile
+
+        self.carpeta = tempfile.mkdtemp(prefix="verificador_")
+        self.clave = Ed25519PrivateKey.generate()
+        self.huella = firma.huella_publica(self.clave)
+        payload = firma.construir_payload(
+            uuid.uuid4(), uuid.uuid4(), uuid.uuid4(), uuid.uuid4(), 1, Decimal("100"), "a" * 64,
+            [uuid.uuid4()], datetime(2026, 1, 15, tzinfo=timezone.utc), clave=self.clave,
+        )
+        self.documento = firma.firmar(payload, self.clave)
+
+    def tearDown(self):
+        import shutil
+
+        shutil.rmtree(self.carpeta, ignore_errors=True)
+
+    def _correr(self, contenido: str, *extra) -> tuple[int, str]:
+        import subprocess
+        import sys
+
+        ruta = os.path.join(self.carpeta, f"{uuid.uuid4().hex}.json")
+        with open(ruta, "w", encoding="utf-8") as archivo:
+            archivo.write(contenido)
+        # -I: modo aislado; el proceso no ve el directorio del proyecto ni PYTHONPATH.
+        proceso = subprocess.run([sys.executable, "-I", self.SCRIPT, ruta, *extra], capture_output=True,
+                                 text=True, timeout=60, cwd=self.carpeta)
+        return proceso.returncode, proceso.stdout.strip()
+
+    def test_integro_y_emitido_por_la_clave_esperada(self):
+        codigo, salida = self._correr(json.dumps(self.documento), "--huella", self.huella)
+        self.assertEqual((codigo, salida), (0, "integro_emisor_esperado"))
+
+    def test_integro_con_otra_clave(self):
+        otra = firma.huella_publica(Ed25519PrivateKey.generate())
+        codigo, salida = self._correr(json.dumps(self.documento), "--huella", otra)
+        self.assertEqual((codigo, salida), (1, "integro_otra_clave"))
+
+    def test_alterado(self):
+        alterado = json.loads(json.dumps(self.documento))
+        alterado["payload"]["co2e_toneladas"] = "100.001"
+        codigo, salida = self._correr(json.dumps(alterado), "--huella", self.huella)
+        self.assertEqual((codigo, salida), (2, "alterado"))
+
+    def test_formato_invalido(self):
+        self.assertEqual(self._correr("{no es json", "--huella", self.huella)[0], 3)
+        self.assertEqual(self._correr(json.dumps({"payload": {}}), "--huella", self.huella)[0], 3)
+        self.assertEqual(self._correr(json.dumps(self.documento), "--huella", "no-es-hex")[0], 3)
+
+    def test_sin_huella_solo_integridad(self):
+        codigo, salida = self._correr(json.dumps(self.documento))
+        self.assertEqual(codigo, 4)
+        self.assertTrue(salida.startswith("integro_sin_huella"))
+
+    def test_no_importa_nada_del_proyecto(self):
+        import ast
+
+        with open(self.SCRIPT, encoding="utf-8") as archivo:
+            arbol = ast.parse(archivo.read())
+        modulos = {n.module.split(".")[0] for n in ast.walk(arbol) if isinstance(n, ast.ImportFrom) and n.module}
+        modulos |= {a.name.split(".")[0] for n in ast.walk(arbol) if isinstance(n, ast.Import) for a in n.names}
+        propios = {"mediciones", "usuarios", "catalogo", "autorizacion", "interfaz", "config", "bitacora_svc", "django"}
+        self.assertFalse(modulos & propios)

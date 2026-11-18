@@ -3,7 +3,7 @@
 La clave privada es una semilla de 32 bytes en base64 estándar en la variable CERT_SIGNING_KEY. Se
 carga al primer uso (nunca al importar) y no aparece en mensajes de error ni en registros. La base
 valida que el payload coincida con sus datos, pero no puede verificar la firma: eso ocurre aquí y en
-scripts/verify_cert.py, que reimplementa la misma canonicalización sin depender del proyecto.
+scripts/verificar_certificado.py, que reimplementa la misma canonicalización sin depender del proyecto.
 """
 
 from __future__ import annotations

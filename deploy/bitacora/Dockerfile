@@ -2,11 +2,12 @@
 # Se construye desde la raíz del repositorio (contexto "."), en el despliegue:
 #   docker build -f deploy/bitacora/Dockerfile -t <registro>/verdeazul/bitacora:vX.Y.Z .
 # Solo lleva el servicio y sus dependencias: nada del negocio (sin Django, ORM ni sesiones).
-FROM python:3.15-slim
+# Misma imagen base que la aplicación: versión explícita, digest y la versión de Python de las pruebas.
+FROM python:3.13.7-slim-trixie@sha256:5f55cdf0c5d9dc1a415637a5ccc4a9e18663ad203673173b8cda8f8dcacef689
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_NO_CACHE_DIR=1 \n    PIP_DISABLE_PIP_VERSION_CHECK=1
 
 # Usuario sin privilegios.
 RUN groupadd --gid 10001 bitacora \

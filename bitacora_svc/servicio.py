@@ -115,8 +115,9 @@ class _Conexiones:
             if conexion is not None:
                 try:
                     conexion.rollback()
-                except Exception:
-                    pass
+                except Exception as error:
+                    # La conexión se descarta igual; solo se anota la clase del error.
+                    registro.warning("evento=rollback_fallido clase=%s", type(error).__name__)
                 conexion.close()
             self._cupos.release()
 
@@ -266,7 +267,9 @@ class Servicio:
         limite = min(int(filtros.get("limite") or 100), LIMITE_MAXIMO)
         orden = "DESC" if filtros.get("orden") == "desc" else "ASC"
         donde = (" WHERE " + " AND ".join(condiciones)) if condiciones else ""
-        consulta = self._q("SELECT cuerpo, hash_previo, hash FROM {e}.evento" + donde + f" ORDER BY seq {orden} LIMIT %s")
+        # Bandit B608 aceptado: el esquema es un sql.Identifier validado, las columnas salen de una lista fija, el
+        # orden de dos valores fijos y todo valor viaja como parámetro.
+        consulta = self._q("SELECT cuerpo, hash_previo, hash FROM {e}.evento" + donde + f" ORDER BY seq {orden} LIMIT %s")  # nosec B608
         with self._conexiones.conexion() as conexion:
             filas = conexion.execute(consulta, [*valores, limite]).fetchall()
         return [self._evento_completo(*f) for f in filas]

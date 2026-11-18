@@ -2,17 +2,18 @@
 """Verificador independiente de certificados Verdeazul Carbono (Ed25519).
 
 Uso:
-    python scripts\\verify_cert.py ARCHIVO.json [--huella HEX64]
+    python scripts/verificar_certificado.py ARCHIVO.json [--huella HEX64]
 
-La huella confiable es el SHA-256 (hex) de la clave pública del sistema, publicada en
-/certificados/clave-publica/. Solo depende de la biblioteca estándar y de cryptography.
+La huella esperada es el SHA-256 (hex) de la clave pública del emisor, publicada en /clave-publica/
+y en /certificados/clave-publica/. Solo depende de la biblioteca estándar y de cryptography: no
+importa nada del proyecto y se puede entregar suelto a un tercero.
 
-Códigos de salida:
-    0 valido                    firma válida y clave confiable
-    1 firma_invalida            la firma no corresponde al contenido
-    2 clave_no_confiable        firma coherente, pero la clave no es la indicada en --huella
-    3 formato_invalido          documento ilegible o incompleto
-    4 sin_confianza_establecida firma coherente sin --huella: integridad sí, origen no
+Resultados y códigos de salida:
+    0 integro_emisor_esperado  firma válida y la clave es la de la huella esperada
+    1 integro_otra_clave       firma válida, pero con otra clave
+    2 alterado                 la firma no corresponde al contenido
+    3 formato_invalido         documento ilegible o incompleto, o --huella mal formada
+    4 integro_sin_huella       firma válida; sin --huella no se puede confirmar el emisor
 """
 
 from __future__ import annotations
@@ -44,12 +45,13 @@ CAMPOS_PAYLOAD = {
     "version_politica",
     "key_id",
 }
-CODIGOS = {
-    "valido": 0,
-    "firma_invalida": 1,
-    "clave_no_confiable": 2,
-    "formato_invalido": 3,
-    "sin_confianza_establecida": 4,
+# Estado interno (el mismo de mediciones.firma.verificar) -> (resultado, código de salida).
+RESULTADOS = {
+    "valido": ("integro_emisor_esperado", 0),
+    "clave_no_confiable": ("integro_otra_clave", 1),
+    "firma_invalida": ("alterado", 2),
+    "formato_invalido": ("formato_invalido", 3),
+    "sin_confianza_establecida": ("integro_sin_huella", 4),
 }
 _UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
@@ -136,18 +138,19 @@ def leer_documento(ruta: str):
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Verifica un certificado Verdeazul Carbono firmado con Ed25519.")
     parser.add_argument("archivo")
-    parser.add_argument("--huella", help="SHA-256 (64 hex) de la clave pública confiable")
+    parser.add_argument("--huella", help="SHA-256 (64 hex) de la clave pública esperada")
     args = parser.parse_args(argv)
     if args.huella is not None and not _HEX64.match(args.huella.strip().lower()):
         print("formato_invalido: --huella debe tener 64 caracteres hexadecimales")
-        return CODIGOS["formato_invalido"]
+        return RESULTADOS["formato_invalido"][1]
     documento = leer_documento(args.archivo)
     estado = "formato_invalido" if documento is None else verificar(documento, args.huella)
+    resultado, codigo = RESULTADOS[estado]
     if estado == "sin_confianza_establecida":
-        print("sin_confianza_establecida: integridad verificada; origen no verificado (falta --huella)")
+        print(f"{resultado}: integridad verificada; emisor no verificado (falta --huella)")
     else:
-        print(estado)
-    return CODIGOS[estado]
+        print(resultado)
+    return codigo
 
 
 if __name__ == "__main__":

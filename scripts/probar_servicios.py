@@ -265,13 +265,13 @@ def firma_valida(certificado: Certificado) -> bool:
     return firma.verificar(documento(certificado), firma.huella_publica()).estado == firma.ESTADO_VALIDO
 
 
-def verify_cert_externo(certificado: Certificado) -> int:
-    """Ejecuta scripts/verify_cert.py como lo haría un tercero; el archivo queda fuera del repositorio."""
+def verificador_externo(certificado: Certificado) -> int:
+    """Ejecuta scripts/verificar_certificado.py como lo haría un tercero; el archivo queda fuera del repositorio."""
     with tempfile.TemporaryDirectory() as carpeta:
         archivo = Path(carpeta) / "certificado.json"
         archivo.write_text(json.dumps(documento(certificado)), encoding="utf-8")
         proceso = subprocess.run(
-            [sys.executable, str(RAIZ / "scripts" / "verify_cert.py"), str(archivo), "--huella", firma.huella_publica()],
+            [sys.executable, str(RAIZ / "scripts" / "verificar_certificado.py"), str(archivo), "--huella", firma.huella_publica()],
             capture_output=True, text=True, timeout=60,
         )
     return proceso.returncode
@@ -830,16 +830,16 @@ def f01():
     servicios.cerrar_periodo(r7, periodo)
     primero = servicios.aprobar_medicion(r2, medicion, huella_revisada=huella).certificado_id
     d.actor(r7)
-    salida_1 = verify_cert_externo(Certificado.objects.get(pk=primero))
+    salida_1 = verificador_externo(Certificado.objects.get(pk=primero))
     exportado = servicios.exportar_certificado(r7, primero)
     servicios.anular_certificado(r7, primero, justificacion=JUSTIFICACION)
     segundo = servicios.aprobar_medicion(r2b, medicion, huella_revisada=huella).certificado_id
     d.actor(r7)
-    salida_2 = verify_cert_externo(Certificado.objects.get(pk=segundo))
+    salida_2 = verificador_externo(Certificado.objects.get(pk=segundo))
     estados = dict(Certificado.objects.filter(medicion_id=medicion).values_list("id", "estado"))
     ok = (salida_1 == 0 and salida_2 == 0 and len(exportado.huella_sha256) == 64 and segundo != primero
           and estados == {primero: "anulado", segundo: "vigente"})
-    return resultado(ok, f"verify_cert exit {salida_1} y {salida_2}; exportado; certificados {sorted(estados.values())}")
+    return resultado(ok, f"verificador exit {salida_1} y {salida_2}; exportado; certificados {sorted(estados.values())}")
 
 
 # --------------------------------------------------------------------------- ejecución
@@ -892,7 +892,7 @@ PRUEBAS = [
     ("E08", "Rechazar no cambia la medición", "rechazada, sin cambios", e08, False),
     ("E09", "Autorizar reinicia la secuencia de aprobación", "nueva versión, presentada", e09, False),
     ("E10", "Enmienda con certificado vigente", "Cd10 hasta anular", e10, False),
-    ("F01", "Flujo completo de extremo a extremo", "verify_cert exit 0 dos veces", f01, False),
+    ("F01", "Flujo completo de extremo a extremo", "verificador exit 0 dos veces", f01, False),
 ]
 
 

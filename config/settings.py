@@ -89,6 +89,10 @@ SECURE_SSL_REDIRECT = not EN_LOCAL
 SESSION_COOKIE_SECURE = not EN_LOCAL
 CSRF_COOKIE_SECURE = not EN_LOCAL
 SECURE_HSTS_SECONDS = 0 if EN_LOCAL else 31536000
+SECURE_HSTS_INCLUDE_SUBDOMAINS = not EN_LOCAL
+# security.W021 (HSTS preload) se acepta: la lista de precarga exige registrar el dominio raíz, y
+# run.app no es nuestro; anunciar "preload" sin poder registrarlo no agrega protección.
+SILENCED_SYSTEM_CHECKS = ["security.W021"]
 SECURE_CONTENT_TYPE_NOSNIFF = True
 SECURE_REFERRER_POLICY = "same-origin"
 SECURE_CROSS_ORIGIN_OPENER_POLICY = "same-origin"
@@ -114,6 +118,10 @@ DATA_UPLOAD_MAX_NUMBER_FILES = 1
 # X-Forwarded-For; con 1 proxy se toma la última entrada, nunca la primera (la controla el cliente).
 # Supuesto a verificar en el despliegue (ver CONTRIBUTING.md).
 TRUSTED_PROXY_COUNT = _entero("TRUSTED_PROXY_COUNT", 1, 0, 5)
+
+# Filas por página en las listas de la interfaz (10 por defecto, 20 como máximo). Cada fila de una
+# lista ligada a una parcela es una decisión del PEP: en producción se puede bajar si son lentas.
+LISTA_TAMANO_PAGINA = _entero("LISTA_TAMANO_PAGINA", 10, 1, 20)
 
 # Timeouts de los servicios de los que depende cada decisión (2 s por defecto, 10 s como máximo).
 BITACORA_TIMEOUT = _segundos("BITACORA_TIMEOUT")

@@ -115,10 +115,10 @@ Importante:
 - Cualquiera puede verificar un certificado sin el proyecto, con `cryptography` instalado:
 
   ```powershell
-  python scripts\verify_cert.py certificado.json --huella <huella_sha256>
+  python scripts\verificar_certificado.py certificado.json --huella <huella_sha256>
   ```
 
-  Códigos de salida: `0` válido, `1` firma inválida, `2` clave no confiable, `3` formato inválido, `4` firma coherente pero sin `--huella` (integridad verificada, origen no).
+  Códigos de salida: `0` íntegro y emitido por la clave esperada, `1` íntegro con otra clave, `2` alterado, `3` formato inválido, `4` íntegro sin `--huella` (integridad verificada, emisor no).
 - También están `/verificar/` (formulario sin sesión: texto pegado o archivo, hasta 65536 bytes) y `/clave-publica/` (la clave y su huella). La ruta JSON `POST /api/verificar/` se retiró: estaba exenta de CSRF y la interfaz prohíbe toda exención.
 - Pruebas: `python scripts/probar_firma.py` con `. .\scripts\entorno_dev.ps1 -Pruebas`.
 - La clave de producción se crea y se rota fuera de Claude Code, solo por el dueño del proyecto.
@@ -519,7 +519,7 @@ App `interfaz`: plantillas del servidor, sin JavaScript, una sola hoja de estilo
 - El objeto sale solo de `objeto_id` en la URL y el actor, de la sesión. El cuerpo solo trae argumentos del servicio, validados por un formulario explícito (`interfaz/formularios.py`, nunca `ModelForm`).
 - Las escrituras se agregan al registro (`interfaz/registro.py`), que genera la ruta `/operaciones/<clave>/[<objeto_id>/]`.
 - Las lecturas usan un serializador por objeto y proyección (`interfaz/serializadores.py`). Un campo fuera de la proyección no llega a la plantilla.
-- Las listas de objetos ligados a una parcela deciden fila por fila (Cd9 y Cd22; cada parcela ajena cuenta como lectura), con páginas de 10 filas (20 como máximo).
+- Las listas de objetos ligados a una parcela deciden fila por fila (Cd9 y Cd22; cada parcela ajena cuenta como lectura), con páginas de `LISTA_TAMANO_PAGINA` filas (10 por defecto, 20 como máximo; `?tamano` solo puede pedir menos).
 - Prohibido en todo el proyecto: exenciones de CSRF, `mark_safe` y el filtro `safe`, scripts o estilos en línea, y SQL armado con texto en `interfaz/`.
 
 ### Respuestas
@@ -539,6 +539,7 @@ App `interfaz`: plantillas del servidor, sin JavaScript, una sola hoja de estilo
 | `CSRF_TRUSTED_ORIGINS` | Orígenes adicionales separados por comas. Por defecto, ninguno: basta el propio origen. |
 | `TRUSTED_PROXY_COUNT` | Proxies de confianza delante de la aplicación (por defecto 1, máximo 5). |
 | `BITACORA_TIMEOUT`, `PDP_TIMEOUT` | Segundos (por defecto 2, entre 0.1 y 10). Un valor inválido impide el arranque. |
+| `LISTA_TAMANO_PAGINA` | Filas por página en las listas (por defecto 10, entre 1 y 20). Se baja si las listas resultan lentas. |
 
 La configuración es segura por defecto. Solo `ENTORNO=local`, que está prohibido en Cloud Run, apaga HTTPS obligatorio, las cookies `Secure` y HSTS.
 
@@ -559,6 +560,22 @@ python scripts/probar_interfaz.py
 ```
 
 `probar_interfaz.py` hace peticiones HTTP con el cliente de Django, más una prueba de humo con un servidor real en loopback. Usa una bitácora real en un esquema temporal y, si existe `.opa_local.json`, repite un subconjunto con OPA. Cada prueba corre en una transacción que se revierte.
+
+## Análisis estático y secretos
+
+```powershell
+pip install -r requirements-dev.txt
+python -m bandit -r config usuarios mediciones catalogo autorizacion bitacora_svc interfaz scripts manage.py -x "*/tests.py,*/migrations/*,*/probar_*.py"
+python scripts/escanear_secretos.py
+```
+
+- **Bandit:** debe terminar sin hallazgos. Toda marca `nosec` lleva el identificador de la regla y, en la línea anterior, la justificación.
+- **`escanear_secretos.py`:**
+  - recorre el árbol de trabajo y todo el historial (`git rev-list --all`), con la biblioteca estándar;
+  - busca cadenas de conexión con contraseña, claves PEM privadas y literales largos de alta entropía asignados a nombres sensibles;
+  - imprime solo archivo, línea, commit y regla, nunca el valor;
+  - termina con código 1 si encuentra algo.
+- **Dependabot** (`.github/dependabot.yml`): actualiza cada semana pip (raíz y `bitacora_svc`) y docker (raíz, `deploy/opa`, `deploy/bitacora`), con 5 PR abiertos como máximo por ecosistema.
 
 ## Producción
 

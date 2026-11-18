@@ -30,7 +30,7 @@ sys.path.insert(0, str(RAIZ))
 sys.path.insert(0, str(RAIZ / "scripts"))
 
 import probar_mediciones as pm  # noqa: E402
-import verify_cert  # noqa: E402
+import verificar_certificado as verify_cert  # noqa: E402
 from mediciones import firma  # noqa: E402
 
 LIMITE_BYTES = 65536
@@ -392,7 +392,7 @@ PRUEBAS = [
     ("F06", "Campo faltante, alg distinto, base64 inválido, longitud y tipo incorrectos", "formato_invalido x5", f06),
     ("F07", "Sin huella confiable", firma.ESTADO_SIN_CONFIANZA, f07),
     ("F08", "CERT_SIGNING_KEY ausente, vacía, corta o no base64", "error claro sin el valor", f08),
-    ("F09", "Canonicalización idéntica en firma.py y verify_cert.py", "bytes idénticos", f09),
+    ("F09", "Canonicalización idéntica en firma.py y verificar_certificado.py", "bytes idénticos", f09),
     ("B01", "Inserción con payload correcto", pm.PASA, b01),
     ("DISCREPANCIAS", "", "", pruebas_discrepancias),
     ("B15", "Cada discrepancia produce un mensaje distinto", "13 mensajes distintos", b15),

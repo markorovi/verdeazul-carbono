@@ -257,7 +257,8 @@ class ConfiguracionSeguraTests(SimpleTestCase):
             "django.setup()\n"
             "print(json.dumps({k: getattr(settings, k) for k in ('DEBUG', 'SECURE_SSL_REDIRECT', 'SESSION_COOKIE_SECURE',"
             " 'CSRF_COOKIE_SECURE', 'SECURE_HSTS_SECONDS', 'SESSION_COOKIE_HTTPONLY', 'SESSION_COOKIE_SAMESITE',"
-            " 'ALLOWED_HOSTS', 'CSRF_TRUSTED_ORIGINS', 'BITACORA_TIMEOUT', 'PDP_TIMEOUT', 'TRUSTED_PROXY_COUNT')}))"
+            " 'ALLOWED_HOSTS', 'CSRF_TRUSTED_ORIGINS', 'BITACORA_TIMEOUT', 'PDP_TIMEOUT', 'TRUSTED_PROXY_COUNT',"
+            " 'LISTA_TAMANO_PAGINA', 'SECURE_HSTS_INCLUDE_SUBDOMAINS', 'SECURE_PROXY_SSL_HEADER')}))"
         )
         base = {"PATH": os.environ.get("PATH", ""), "SYSTEMROOT": os.environ.get("SYSTEMROOT", ""),
                 "DJANGO_SETTINGS_MODULE": "config.settings", "SECRET_KEY": "clave-de-prueba-de-configuracion",
@@ -276,6 +277,9 @@ class ConfiguracionSeguraTests(SimpleTestCase):
         self.assertEqual(a["ALLOWED_HOSTS"], [])
         self.assertEqual(a["CSRF_TRUSTED_ORIGINS"], [])
         self.assertEqual((a["BITACORA_TIMEOUT"], a["PDP_TIMEOUT"], a["TRUSTED_PROXY_COUNT"]), (2.0, 2.0, 1))
+        self.assertTrue(a["SECURE_HSTS_INCLUDE_SUBDOMAINS"])
+        self.assertEqual(a["SECURE_PROXY_SSL_HEADER"], ["HTTP_X_FORWARDED_PROTO", "https"])
+        self.assertEqual(a["LISTA_TAMANO_PAGINA"], 10)
 
     def test_hosts_y_timeouts_por_variables(self):
         a = self._ajustes(ALLOWED_HOSTS="app.example, otra.example", CSRF_TRUSTED_ORIGINS="https://app.example",
@@ -283,6 +287,11 @@ class ConfiguracionSeguraTests(SimpleTestCase):
         self.assertEqual(a["ALLOWED_HOSTS"], ["app.example", "otra.example"])
         self.assertEqual(a["CSRF_TRUSTED_ORIGINS"], ["https://app.example"])
         self.assertEqual((a["BITACORA_TIMEOUT"], a["PDP_TIMEOUT"]), (3.5, 1.0))
+
+    def test_tamano_de_pagina_por_variable_con_tope(self):
+        self.assertEqual(self._ajustes(LISTA_TAMANO_PAGINA="5")["LISTA_TAMANO_PAGINA"], 5)
+        self.assertIn("error", self._ajustes(LISTA_TAMANO_PAGINA="21"))
+        self.assertIn("error", self._ajustes(LISTA_TAMANO_PAGINA="0"))
 
     def test_timeout_fuera_de_rango_no_arranca(self):
         self.assertIn("error", self._ajustes(PDP_TIMEOUT="60"))
@@ -353,3 +362,57 @@ def firma_fecha():
     from datetime import datetime, timezone
 
     return datetime(2026, 1, 15, tzinfo=timezone.utc)
+
+
+class ProxyHttpsTests(SimpleTestCase):
+    """Detrás de Cloud Run: TLS termina en el proxy, que envía X-Forwarded-Proto: https."""
+
+    def _salud(self, **meta):
+        conexion = mock.MagicMock()
+        with mock.patch("interfaz.vistas.connection", conexion):
+            return self.client.get("/salud/", HTTP_HOST="app.example", **meta)
+
+    @override_settings(SECURE_SSL_REDIRECT=True, SECURE_HSTS_SECONDS=31536000, ALLOWED_HOSTS=["app.example"])
+    def test_sin_cabecera_redirige_a_https(self):
+        r = self._salud()
+        self.assertEqual(r.status_code, 301)
+        self.assertEqual(r["Location"], "https://app.example/salud/")
+
+    @override_settings(SECURE_SSL_REDIRECT=True, SECURE_HSTS_SECONDS=31536000, ALLOWED_HOSTS=["app.example"])
+    def test_con_cabecera_https_responde_200_sin_bucle(self):
+        r = self._salud(HTTP_X_FORWARDED_PROTO="https")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json(), {"estado": "ok"})
+        self.assertNotIn("Location", r)
+        self.assertIn("max-age=31536000", r["Strict-Transport-Security"])
+
+    @override_settings(SECURE_SSL_REDIRECT=True, ALLOWED_HOSTS=["app.example"])
+    def test_seguir_la_redireccion_por_el_proxy_no_vuelve_a_redirigir(self):
+        primera = self._salud(HTTP_X_FORWARDED_PROTO="http")
+        self.assertEqual(primera.status_code, 301)
+        segunda = self._salud(HTTP_X_FORWARDED_PROTO="https")
+        self.assertEqual(segunda.status_code, 200)
+
+    def test_la_cabecera_de_confianza_es_x_forwarded_proto(self):
+        from django.conf import settings
+
+        self.assertEqual(settings.SECURE_PROXY_SSL_HEADER, ("HTTP_X_FORWARDED_PROTO", "https"))
+
+
+class TamanoDePaginaTests(SimpleTestCase):
+    def _pagina(self, consulta=""):
+        from interfaz import vistas
+
+        return vistas._paginacion(RequestFactory().get(f"/mediciones/{consulta}"))
+
+    @override_settings(LISTA_TAMANO_PAGINA=10)
+    def test_por_defecto_10(self):
+        self.assertEqual(self._pagina(), (1, 10))
+        self.assertEqual(self._pagina("?tamano=20"), (1, 10))
+        self.assertEqual(self._pagina("?tamano=3&pagina=2"), (2, 3))
+
+    @override_settings(LISTA_TAMANO_PAGINA=4)
+    def test_el_valor_configurado_es_el_tope(self):
+        self.assertEqual(self._pagina(), (1, 4))
+        self.assertEqual(self._pagina("?tamano=20"), (1, 4))
+        self.assertEqual(self._pagina("?tamano=no"), (1, 4))

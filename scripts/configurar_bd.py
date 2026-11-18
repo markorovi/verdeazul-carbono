@@ -25,7 +25,8 @@ import os
 import re
 import secrets
 import shutil
-import subprocess
+# Bandit B404 aceptado: solo se invoca gcloud con una lista de argumentos y sin shell.
+import subprocess  # nosec B404
 import sys
 import time
 from urllib.parse import parse_qs, quote, unquote, urlsplit, urlunsplit
@@ -532,7 +533,8 @@ def localizar_gcloud() -> str | None:
 def ejecutar_gcloud(
     gcloud: str, argumentos: list[str], entrada: bytes = b""
 ) -> tuple[int, str, str]:
-    resultado = subprocess.run(
+    # Bandit B603 aceptado: ejecutable gcloud resuelto por ruta, argumentos en lista, sin shell.
+    resultado = subprocess.run(  # nosec B603
         [gcloud, *argumentos],
         input=entrada,
         capture_output=True,

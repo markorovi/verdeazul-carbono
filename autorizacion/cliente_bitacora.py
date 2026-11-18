@@ -12,7 +12,7 @@ import json
 import urllib.error
 import urllib.request
 from functools import lru_cache
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 from django.conf import settings
 
@@ -36,6 +36,8 @@ class ClienteBitacora:
         self.url = (url or getattr(settings, "BITACORA_URL", "") or "").rstrip("/")
         if not self.url:
             raise BitacoraNoDisponible("Falta BITACORA_URL.")
+        if urlsplit(self.url).scheme not in ("http", "https"):
+            raise BitacoraNoDisponible("BITACORA_URL debe usar http o https.")
         audiencia = audiencia if audiencia is not None else getattr(settings, "BITACORA_AUDIENCE", None)
         self._token = TokenDeIdentidad(audiencia) if audiencia else None
 
@@ -48,7 +50,8 @@ class ClienteBitacora:
         try:
             if self._token is not None:
                 solicitud.add_header("Authorization", f"Bearer {self._token.valor()}")
-            with urllib.request.urlopen(solicitud, timeout=timeout) as respuesta:
+            # Bandit B310 aceptado: el esquema se valida en __init__ (solo http o https).
+            with urllib.request.urlopen(solicitud, timeout=timeout) as respuesta:  # nosec B310
                 contenido = respuesta.read(MAX_BYTES_RESPUESTA + 1)
                 estado = respuesta.status
         except urllib.error.HTTPError as error:

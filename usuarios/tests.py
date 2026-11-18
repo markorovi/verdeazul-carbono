@@ -200,3 +200,83 @@ class CodigosTests(SimpleTestCase):
         self.assertFalse(codigos.disponible(vence, None, 5, self.ahora))
         self.assertFalse(codigos.disponible(vence, self.ahora, 0, self.ahora))
         self.assertFalse(codigos.disponible(self.ahora, None, 0, self.ahora))
+
+
+class GenerarTotpTests(SimpleTestCase):
+    """scripts/generar_totp.py (solo biblioteca estándar) da el mismo código que la aplicación."""
+
+    def _modulo(self):
+        import importlib.util
+        from pathlib import Path
+
+        ruta = Path(__file__).resolve().parent.parent / "scripts" / "generar_totp.py"
+        especificacion = importlib.util.spec_from_file_location("generar_totp", ruta)
+        modulo = importlib.util.module_from_spec(especificacion)
+        especificacion.loader.exec_module(modulo)
+        return modulo
+
+    def test_mismo_codigo_que_la_aplicacion(self):
+        import time
+
+        generador = self._modulo()
+        secreto = totp.generar_secreto()
+        for instante in (0, 59, 1_700_000_000, time.time()):
+            self.assertEqual(generador.codigo(secreto, instante), totp.codigo_para(secreto, instante))
+
+    def test_lee_el_secreto_oculto_y_no_lo_muestra(self):
+        import contextlib
+        import io
+        from unittest import mock
+
+        generador = self._modulo()
+        secreto = totp.generar_secreto()
+        salida = io.StringIO()
+        with mock.patch.object(generador.getpass, "getpass", return_value=secreto) as oculto, \
+                contextlib.redirect_stdout(salida):
+            self.assertEqual(generador.main(), 0)
+        oculto.assert_called_once()
+        self.assertNotIn(secreto, salida.getvalue())
+        self.assertRegex(salida.getvalue(), r"Código vigente: [0-9]{6}")
+
+    def test_secreto_invalido(self):
+        import contextlib
+        import io
+        from unittest import mock
+
+        generador = self._modulo()
+        with mock.patch.object(generador.getpass, "getpass", return_value="no*es*base32"), \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(generador.main(), 1)
+
+
+class SalidaDeDemostracionTests(SimpleTestCase):
+    """sembrar_demo solo escribe fuera del repositorio, en una carpeta existente y sin pisar archivos."""
+
+    def test_rechaza_rutas_dentro_del_repositorio(self):
+        from usuarios.management.commands.sembrar_demo import validar_salida
+
+        for ruta in (settings.BASE_DIR / "credenciales_demo.json", settings.BASE_DIR / "scripts" / "x.json",
+                     settings.BASE_DIR):
+            with self.assertRaises(CommandError):
+                validar_salida(str(ruta))
+
+    def test_acepta_una_ruta_nueva_fuera_y_rechaza_una_existente(self):
+        import tempfile
+        from pathlib import Path
+
+        from usuarios.management.commands.sembrar_demo import validar_salida
+
+        with tempfile.TemporaryDirectory() as carpeta:
+            nueva = Path(carpeta) / "credenciales_demo.json"
+            self.assertEqual(validar_salida(str(nueva)), nueva.resolve())
+            nueva.write_text("{}", encoding="utf-8")
+            with self.assertRaises(CommandError):
+                validar_salida(str(nueva))
+            with self.assertRaises(CommandError):
+                validar_salida(str(Path(carpeta) / "no-existe" / "x.json"))
+
+    def test_las_siete_cuentas_no_tienen_roles_excluyentes_entre_si(self):
+        from usuarios.management.commands.sembrar_demo import CUENTAS, cuadrado
+
+        self.assertEqual(sorted(rol for rol, _, _ in CUENTAS), [f"R{n}" for n in range(1, 8)])
+        self.assertEqual(len({cuadrado(i) for i in range(3)}), 3)

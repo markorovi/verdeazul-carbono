@@ -12,6 +12,7 @@ from __future__ import annotations
 import dataclasses
 from pathlib import Path
 
+from django.conf import settings
 from django.db import connection, transaction
 from django.http import FileResponse, Http404, HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
@@ -34,7 +35,6 @@ from mediciones.contexto import como_actor
 from mediciones.models import Alerta, Certificado, Enmienda, Medicion, Periodo
 from usuarios.models import RolUsuario, Usuario
 
-TAMANO_PAGINA = 10
 TAMANO_MAXIMO = 20
 PAGINA_BITACORA = 50
 ESTATICOS = {"interfaz/estilo.css": ("text/css; charset=utf-8", Path(__file__).resolve().parent / "static" / "interfaz" / "estilo.css")}
@@ -68,11 +68,17 @@ def _acciones(tipo: str, ficha: serializadores.Ficha | None) -> list[tuple[str, 
             if e.clase == registro.ESCRITURA and e.objeto == tipo]
 
 
+def tamano_de_pagina() -> int:
+    """LISTA_TAMANO_PAGINA (10 por defecto) es también el tope: ?tamano solo puede pedir menos."""
+    return max(1, min(int(getattr(settings, "LISTA_TAMANO_PAGINA", 10)), TAMANO_MAXIMO))
+
+
 def _paginacion(request) -> tuple[int, int]:
+    tope = tamano_de_pagina()
     form = formularios.Pagina(request.GET)
     if not form.is_valid():
-        return 1, TAMANO_PAGINA
-    return form.cleaned_data["pagina"] or 1, min(form.cleaned_data["tamano"] or TAMANO_PAGINA, TAMANO_MAXIMO)
+        return 1, tope
+    return form.cleaned_data["pagina"] or 1, min(form.cleaned_data["tamano"] or tope, tope)
 
 
 def _ficha(request, tipo: str, objeto_id, proyeccion):
