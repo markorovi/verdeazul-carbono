@@ -55,6 +55,18 @@ TIPO_H2_UMBRAL_BLANDO = "h2_umbral_blando"
 TIPO_DENEGACIONES_CD2 = "denegaciones_cd2"
 DENEGACIONES_CD2_PARA_ALERTA = 3
 VENTANA_AVISOS = timedelta(hours=24)
+# Motivos de denegación que se deben a una dependencia caída (PIP, PDP, bitácora o registros), no a
+# la política: la interfaz los presenta como servicio no disponible.
+MOTIVOS_DE_INFRAESTRUCTURA = frozenset({
+    "falla del PIP",
+    "falla del PDP",
+    "bitácora no disponible",
+    "no se pudo registrar el intento",
+    "lectura no registrada",
+    "aviso a R7 no registrado",
+    "registro del intento fallido",
+    "no se pudo resolver el perfil de emergencia",
+})
 
 
 class ReautenticacionRequerida(Exception):

@@ -1,0 +1,16 @@
+{% extends "interfaz/base.html" %}
+
+{% block titulo %}Operaciones - Verdeazul Carbono{% endblock %}
+
+{% block contenido %}
+  <h1>Operaciones</h1>
+  <p>Roles vigentes: {% for rol in roles %}{{ rol }}{% if not forloop.last %}, {% endif %}{% empty %}ninguno{% endfor %}</p>
+  <p class="nota">La lista solo orienta: cada operación la decide el servidor al ejecutarla.</p>
+
+  <h2>Sus operaciones</h2>
+  {% include "interfaz/tabla_operaciones.html" with filas=propias %}
+
+  <h2>Probar otras operaciones</h2>
+  <p class="nota">Las 41 operaciones de la matriz. Las que no le corresponden terminan en 403 con la regla aplicada.</p>
+  {% include "interfaz/tabla_operaciones.html" with filas=otras %}
+{% endblock %}

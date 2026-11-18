@@ -1,4 +1,4 @@
-{% extends "usuarios/base.html" %}
+{% extends "interfaz/base.html" %}
 
 {% block titulo %}Iniciar sesión - Verdeazul Carbono{% endblock %}
 
@@ -9,6 +9,7 @@
   {% endif %}
   <form method="post" action="{% url 'acceso' %}">
     {% csrf_token %}
+    <input type="hidden" name="next" value="{{ siguiente }}">
     <p>
       <label for="{{ form.correo.id_for_label }}">{{ form.correo.label }}</label><br>
       {{ form.correo }}
@@ -19,4 +20,6 @@
     </p>
     <p><button type="submit">Continuar</button></p>
   </form>
+  <p><a href="{% url 'recuperar' %}">Activar una cuenta o recuperar el acceso con un código</a></p>
+  <p><a href="{% url 'verificar' %}">Verificar un certificado</a></p>
 {% endblock %}

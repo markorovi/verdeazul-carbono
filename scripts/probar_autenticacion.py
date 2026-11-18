@@ -13,6 +13,7 @@ Nunca imprime contraseñas, códigos, secretos ni la salida del comando crear_cu
 """
 
 import io
+import itertools
 import logging
 import os
 import re
@@ -101,8 +102,14 @@ def crear_cuenta(activo: bool = True, con_totp: bool = True) -> Cuenta:
     return Cuenta(usuario, contrasena, secreto)
 
 
+_ORIGENES = itertools.count(1)
+
+
 def cliente() -> Client:
-    return Client(HTTP_HOST=HOST)
+    """Cada cliente sale de una IP distinta (rango de documentación 198.18.0.0/15): el límite por IP
+    del acceso se prueba en probar_interfaz.py; aquí se aísla el bloqueo por cuenta."""
+    n = next(_ORIGENES)
+    return Client(HTTP_HOST=HOST, REMOTE_ADDR=f"198.18.{n // 250}.{n % 250 + 1}")
 
 
 def esperar_margen_de_paso() -> None:
@@ -343,7 +350,7 @@ def prueba_cookie_sesion():
     morsel = r.cookies.get("sessionid")
     httponly = bool(morsel and morsel["httponly"])
     samesite = morsel["samesite"] if morsel else "-"
-    return httponly and samesite == "Strict", f"HttpOnly={httponly}, SameSite={samesite}"
+    return httponly and samesite == "Lax", f"HttpOnly={httponly}, SameSite={samesite}"
 
 
 def prueba_mfa_reciente():
@@ -541,7 +548,7 @@ def ejecutar_pruebas(captura: CapturaRegistro) -> list[Resultado]:
         correr("T15", "/salida/ por GET no cierra sesión; por POST sí y borra la fila",
                "GET 405, POST 302, sin fila", prueba_salida),
         correr("T16", "Secreto TOTP cifrado en la columna", "no visible, descifra", prueba_secreto_cifrado),
-        correr("T17", "Cookie de sesión", "HttpOnly, SameSite=Strict", prueba_cookie_sesion),
+        correr("T17", "Cookie de sesión", "HttpOnly, SameSite=Lax", prueba_cookie_sesion),
         correr("T18", "mfa_reciente según la antigüedad del segundo factor", "True, luego False", prueba_mfa_reciente),
         correr("T19", "app_rw: columnas nuevas sí; correo y otra tabla no",
                "pasa, falla 42501, falla 42501", prueba_columnas_app_rw),

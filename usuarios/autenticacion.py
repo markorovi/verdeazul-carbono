@@ -37,6 +37,8 @@ EVENTOS_DE_BITACORA = {
     ("acceso_fallido", "totp_invalido"): (("segundo_factor", "fallo"),),
     ("acceso_fallido", None): (("inicio_sesion", "fallo"),),
     (EVENTO_BLOQUEO, None): (("bloqueo", "exito"),),
+    # Segundo factor reciente pedido por una operación crítica (pantalla de reautenticación).
+    ("reautenticacion", None): (("segundo_factor", "exito"),),
 }
 
 

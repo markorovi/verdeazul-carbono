@@ -1,0 +1,5 @@
+<dl class="ficha">
+  {% for clave, etiqueta, valor in ficha.campos %}
+    <dt>{{ etiqueta }}</dt><dd data-campo="{{ clave }}">{{ valor }}</dd>
+  {% endfor %}
+</dl>

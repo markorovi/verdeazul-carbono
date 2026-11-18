@@ -1,0 +1,18 @@
+{% extends "interfaz/base.html" %}
+
+{% block titulo %}Bitácora - Verdeazul Carbono{% endblock %}
+
+{% block contenido %}
+  <h1>Bitácora</h1>
+  <p class="nota">Eventos más recientes primero. Las personas aparecen como seudónimo.</p>
+  {% for ficha in fichas %}
+    <section class="fila">
+      {% include "interfaz/ficha.html" with ficha=ficha %}
+    </section>
+  {% empty %}
+    <p>No hay eventos visibles.</p>
+  {% endfor %}
+  {% if antes_de %}
+    <p><a href="?antes_de={{ antes_de }}">Eventos anteriores</a></p>
+  {% endif %}
+{% endblock %}

@@ -119,7 +119,7 @@ Importante:
   ```
 
   Códigos de salida: `0` válido, `1` firma inválida, `2` clave no confiable, `3` formato inválido, `4` firma coherente pero sin `--huella` (integridad verificada, origen no).
-- También están `/verificar/` (formulario) y `POST /api/verificar/` (JSON, hasta 65536 bytes).
+- También están `/verificar/` (formulario sin sesión: texto pegado o archivo, hasta 65536 bytes) y `/clave-publica/` (la clave y su huella). La ruta JSON `POST /api/verificar/` se retiró: estaba exenta de CSRF y la interfaz prohíbe toda exención.
 - Pruebas: `python scripts/probar_firma.py` con `. .\scripts\entorno_dev.ps1 -Pruebas`.
 - La clave de producción se crea y se rota fuera de Claude Code, solo por el dueño del proyecto.
 
@@ -508,6 +508,57 @@ Ver `deploy/bitacora/Dockerfile`: imagen `python:3.15-slim`, usuario 10001, puer
 - los secretos `DATABASE_URL_BITACORA`, `BITACORA_SALT` y `BITACORA_SIGNING_KEY`, con acceso solo para esa cuenta;
 - un bucket con retención bloqueada (`BITACORA_WORM=gcs`);
 - `roles/run.invoker` solo para la cuenta de la aplicación.
+
+## Interfaz web
+
+App `interfaz`: plantillas del servidor, sin JavaScript, una sola hoja de estilos (`interfaz/static/interfaz/estilo.css`) y autoescape siempre activo. La interfaz solo presenta: toda decisión la toma el PEP.
+
+### Reglas para agregar una vista
+
+- Toda vista lleva `@operacion("Ox.Yy", objeto="tipo")`, `@autenticada` (páginas sin objetos protegidos) o `@publica`. `interfaz/tests.py` recorre todas las rutas y falla si alguna no tiene marca o si aparece una pública fuera de la lista: acceso, segundo factor, recuperación, salud, verificación pública, clave pública y estáticos.
+- El objeto sale solo de `objeto_id` en la URL y el actor, de la sesión. El cuerpo solo trae argumentos del servicio, validados por un formulario explícito (`interfaz/formularios.py`, nunca `ModelForm`).
+- Las escrituras se agregan al registro (`interfaz/registro.py`), que genera la ruta `/operaciones/<clave>/[<objeto_id>/]`.
+- Las lecturas usan un serializador por objeto y proyección (`interfaz/serializadores.py`). Un campo fuera de la proyección no llega a la plantilla.
+- Las listas de objetos ligados a una parcela deciden fila por fila (Cd9 y Cd22; cada parcela ajena cuenta como lectura), con páginas de 10 filas (20 como máximo).
+- Prohibido en todo el proyecto: exenciones de CSRF, `mark_safe` y el filtro `safe`, scripts o estilos en línea, y SQL armado con texto en `interfaz/`.
+
+### Respuestas
+
+| Resultado del PEP | Respuesta |
+| --- | --- |
+| Concedido | La página del resultado o el adjunto. |
+| Denegado | 403 con la regla y un motivo breve de un catálogo fijo. |
+| Exige segundo factor reciente (900 s) | Pide el código en `/acceso/reautenticar/`. Los datos validados quedan pendientes 5 minutos y el formulario se vuelve a mostrar para confirmarlo: el POST nunca se reenvía solo. |
+| Bitácora, PDP o PIP no disponibles | 503 genérico. |
+
+### Variables
+
+| Variable | Contenido |
+| --- | --- |
+| `ALLOWED_HOSTS` | Hosts separados por comas. En producción, sin ella no se atiende ningún host (falla cerrado). En local, `localhost` y `127.0.0.1`. |
+| `CSRF_TRUSTED_ORIGINS` | Orígenes adicionales separados por comas. Por defecto, ninguno: basta el propio origen. |
+| `TRUSTED_PROXY_COUNT` | Proxies de confianza delante de la aplicación (por defecto 1, máximo 5). |
+| `BITACORA_TIMEOUT`, `PDP_TIMEOUT` | Segundos (por defecto 2, entre 0.1 y 10). Un valor inválido impide el arranque. |
+
+La configuración es segura por defecto. Solo `ENTORNO=local`, que está prohibido en Cloud Run, apaga HTTPS obligatorio, las cookies `Secure` y HSTS.
+
+### IP del cliente y límites
+
+- **Supuesto a verificar en el despliegue:** Cloud Run agrega la IP real del cliente al final de `X-Forwarded-For`. Con `TRUSTED_PROXY_COUNT=1` se toma la última entrada, nunca la primera, porque esa la escribe el cliente. Si se agrega un balanceador delante, hay que subir el valor.
+- **Acceso y recuperación:** 20 fallos por IP en 15 minutos limitan el origen (HTTP 429). Esto se suma al bloqueo por cuenta.
+  - Los fallos se guardan en `interfaz_intentofallido` (migración `interfaz 0001`, solo SELECT e INSERT para `app_rw`), con el HMAC de la IP.
+  - Retención: 30 días. La depuración la hace el dueño de la base.
+- **Verificación pública:** 30 peticiones por IP cada 5 minutos, en memoria y por instancia.
+
+### Pruebas
+
+```powershell
+python manage.py test interfaz
+. .\scripts\entorno_dev.ps1 -Pruebas
+python scripts/probar_interfaz.py
+```
+
+`probar_interfaz.py` hace peticiones HTTP con el cliente de Django, más una prueba de humo con un servidor real en loopback. Usa una bitácora real en un esquema temporal y, si existe `.opa_local.json`, repite un subconjunto con OPA. Cada prueba corre en una transacción que se revierte.
 
 ## Producción
 

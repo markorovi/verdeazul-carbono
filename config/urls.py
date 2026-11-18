@@ -1,18 +1,12 @@
-from django.db import connection
-from django.http import JsonResponse
 from django.urls import include, path
 
-
-def inicio(request):
-    # Comprueba la conexión sin revelar la versión del servidor de base de datos.
-    with connection.cursor() as cursor:
-        cursor.execute("select 1")
-        cursor.fetchone()
-    return JsonResponse({"estado": "ok", "base_de_datos": "conectada"})
-
-
 urlpatterns = [
-    path("", inicio),
     path("", include("usuarios.urls")),
     path("", include("mediciones.urls")),
+    path("", include("interfaz.urls")),
 ]
+
+handler400 = "interfaz.errores.solicitud_invalida"
+handler403 = "interfaz.errores.acceso_denegado"
+handler404 = "interfaz.errores.no_encontrado"
+handler500 = "interfaz.errores.error_interno"

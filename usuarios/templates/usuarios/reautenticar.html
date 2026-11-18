@@ -1,0 +1,21 @@
+{% extends "interfaz/base.html" %}
+
+{% block titulo %}Confirmar identidad - Verdeazul Carbono{% endblock %}
+
+{% block contenido %}
+  <h1>Confirmar identidad</h1>
+  <p>La operación exige un segundo factor reciente. Escriba el código de su aplicación autenticadora.
+     Después podrá revisar la operación y confirmarla; no se ejecuta sola.</p>
+  {% if error %}
+    <p role="alert">{{ error }}</p>
+  {% endif %}
+  <form method="post" action="{% url 'reautenticar' %}">
+    {% csrf_token %}
+    <input type="hidden" name="next" value="{{ siguiente }}">
+    <p>
+      <label for="{{ form.codigo.id_for_label }}">{{ form.codigo.label }}</label><br>
+      {{ form.codigo }}
+    </p>
+    <p><button type="submit">Confirmar</button></p>
+  </form>
+{% endblock %}

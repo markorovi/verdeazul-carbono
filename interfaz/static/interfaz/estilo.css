@@ -1,0 +1,88 @@
+/* Hoja de estilos única de la interfaz: sobria y legible. */
+
+body {
+  font-family: system-ui, sans-serif;
+  margin: 0;
+  color: #1b1b1b;
+  background: #ffffff;
+  line-height: 1.45;
+}
+
+header {
+  background: #1f4d3a;
+  color: #ffffff;
+  padding: 0.5rem 1rem;
+}
+
+header .marca {
+  margin: 0;
+  font-weight: bold;
+}
+
+header nav a {
+  color: #ffffff;
+  margin-right: 1rem;
+}
+
+main {
+  max-width: 60rem;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.en-linea {
+  display: inline;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+th,
+td {
+  border: 1px solid #c8c8c8;
+  padding: 0.3rem 0.5rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+dl.ficha dt {
+  font-weight: bold;
+}
+
+dl.ficha dd {
+  margin: 0 0 0.4rem 0;
+  overflow-wrap: anywhere;
+}
+
+.fila {
+  border-bottom: 1px solid #c8c8c8;
+  margin-bottom: 0.8rem;
+}
+
+.nota {
+  color: #4a4a4a;
+  font-size: 0.9rem;
+}
+
+.aviso,
+[role="alert"] {
+  background: #fff4d6;
+  border-left: 4px solid #b07d00;
+  padding: 0.4rem 0.6rem;
+}
+
+.error,
+.errores {
+  color: #8a1c1c;
+}
+
+.regla {
+  font-family: monospace;
+}
+
+textarea,
+input[type="text"] {
+  max-width: 100%;
+}

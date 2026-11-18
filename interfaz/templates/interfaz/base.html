@@ -1,0 +1,28 @@
+{% load static %}<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block titulo %}Verdeazul Carbono{% endblock %}</title>
+  <link rel="stylesheet" href="{% static 'interfaz/estilo.css' %}">
+</head>
+<body>
+  <header>
+    <p class="marca">Verdeazul Carbono</p>
+    {% if user.is_authenticated %}
+      <nav>
+        <a href="{% url 'consola' %}">Operaciones</a>
+        <a href="{% url 'cuenta' %}">Mi cuenta</a>
+        <a href="{% url 'verificar' %}">Verificar certificado</a>
+        <form method="post" action="{% url 'salida' %}" class="en-linea">
+          {% csrf_token %}
+          <button type="submit">Cerrar sesión</button>
+        </form>
+      </nav>
+    {% endif %}
+  </header>
+  <main>
+    {% block contenido %}{% endblock %}
+  </main>
+</body>
+</html>

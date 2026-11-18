@@ -16,6 +16,7 @@ import argparse
 import base64
 import json
 import os
+import re
 import sys
 import uuid
 from contextlib import contextmanager
@@ -274,6 +275,12 @@ def _django():
     return Client
 
 
+def SimpleUploadedFile(*argumentos):
+    from django.core.files.uploadedfile import SimpleUploadedFile as archivo
+
+    return archivo(*argumentos)
+
+
 def documento_real() -> dict:
     return firma.firmar(payload_sintetico())
 
@@ -303,39 +310,44 @@ def pruebas_rutas(app, mig) -> list[tuple[str, str, str, bool, str]]:
     filas.append(("W03", "POST /verificar/ válido; sin token CSRF se rechaza", "200 valido; 403", ok,
                   f"HTTP {r.status_code}; sin token HTTP {sin_token.status_code}"))
 
-    r = estricto.post("/api/verificar/", data=texto, content_type="application/json")
-    cuerpo = r.json() if r.status_code == 200 else {}
-    ok = r.status_code == 200 and cuerpo.get("estado") == firma.ESTADO_VALIDO
-    filas.append(("W04", "POST /api/verificar/ válido sin token CSRF (exenta)", "200 valido", ok,
-                  f"HTTP {r.status_code}, estado {cuerpo.get('estado')}"))
+    def conclusion(respuesta) -> str:
+        encontrada = re.search(r'data-conclusion="([a-z_]+)"', respuesta.content.decode())
+        return encontrada.group(1) if encontrada else "-"
+
+    archivo = SimpleUploadedFile("certificado.json", texto.encode("utf-8"), "application/json")
+    r = cliente.post("/verificar/", {"archivo": archivo})
+    filas.append(("W04", "POST /verificar/ con el certificado como archivo", "200 integro_verdeazul",
+                  r.status_code == 200 and conclusion(r) == "integro_verdeazul", f"HTTP {r.status_code}, {conclusion(r)}"))
 
     alterado = copia(documento_real())
     alterado["payload"]["co2e_toneladas"] = "999.000"
-    r = cliente.post("/api/verificar/", data=json.dumps(alterado), content_type="application/json")
-    filas.append(("W05", "POST /api/verificar/ alterado", "200 firma_invalida",
-                  r.status_code == 200 and r.json().get("estado") == firma.ESTADO_FIRMA_INVALIDA,
-                  f"HTTP {r.status_code}, estado {r.json().get('estado')}"))
+    r = cliente.post("/verificar/", {"certificado": json.dumps(alterado)})
+    filas.append(("W05", "POST /verificar/ alterado", "200 alterado (firma_invalida)",
+                  r.status_code == 200 and conclusion(r) == "alterado" and "Estado: firma_invalida" in r.content.decode(),
+                  f"HTTP {r.status_code}, {conclusion(r)}"))
 
-    r = cliente.post("/api/verificar/", data="{no es json", content_type="application/json")
-    filas.append(("W06", "POST /api/verificar/ con JSON ilegible", "400 formato_invalido",
-                  r.status_code == 400 and r.json().get("estado") == firma.ESTADO_FORMATO_INVALIDO,
-                  f"HTTP {r.status_code}, estado {r.json().get('estado')}"))
+    r = cliente.post("/verificar/", {"certificado": "{no es json"})
+    filas.append(("W06", "POST /verificar/ con JSON ilegible", "200 formato_invalido",
+                  r.status_code == 200 and conclusion(r) == "formato_invalido", f"HTTP {r.status_code}, {conclusion(r)}"))
 
     grande = json.dumps({"relleno": "x" * (LIMITE_BYTES + 10)})
-    r = cliente.post("/api/verificar/", data=grande, content_type="application/json")
-    filas.append(("W07", "POST /api/verificar/ mayor a 65536 bytes", "413", r.status_code == 413, f"HTTP {r.status_code}"))
+    r = cliente.post("/verificar/", {"certificado": grande})
+    filas.append(("W07", "POST /verificar/ mayor a 65536 bytes", "413", r.status_code == 413, f"HTTP {r.status_code}"))
 
-    r = cliente.post("/api/verificar/", data=texto, content_type="text/plain")
-    filas.append(("W08", "POST /api/verificar/ sin Content-Type JSON", "415", r.status_code == 415, f"HTTP {r.status_code}"))
+    otra = json.dumps(firma.firmar(payload_sintetico(), Ed25519PrivateKey.generate()))
+    r = cliente.post("/verificar/", {"certificado": otra})
+    filas.append(("W08", "POST /verificar/ firmado con otra clave", "200 integro_otra_clave (clave_no_confiable)",
+                  r.status_code == 200 and conclusion(r) == "integro_otra_clave"
+                  and "Estado: clave_no_confiable" in r.content.decode(), f"HTTP {r.status_code}, {conclusion(r)}"))
 
-    r = cliente.get("/api/verificar/")
-    filas.append(("W09", "GET /api/verificar/", "405", r.status_code == 405, f"HTTP {r.status_code}"))
+    r = estricto.post("/api/verificar/", data=texto, content_type="application/json")
+    filas.append(("W09", "La ruta exenta de CSRF ya no existe", "404", r.status_code == 404, f"HTTP {r.status_code}"))
 
     with entorno_de_clave(None):
         codigos = [cliente.get("/certificados/clave-publica/").status_code,
                    cliente.get("/verificar/").status_code,
-                   cliente.post("/api/verificar/", data=texto, content_type="application/json").status_code]
-        detalle = cliente.get("/certificados/clave-publica/").content.decode()
+                   cliente.get("/clave-publica/").status_code]
+        detalle = cliente.get("/certificados/clave-publica/").content.decode() + cliente.get("/clave-publica/").content.decode()
     ok = codigos == [503, 503, 503] and firma.VARIABLE_CLAVE not in detalle
     filas.append(("W10", "Sin CERT_SIGNING_KEY las tres rutas responden 503 sin detalles", "503 x3", ok, f"HTTP {codigos}"))
     return filas

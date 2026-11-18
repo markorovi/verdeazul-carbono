@@ -1,7 +1,7 @@
 """Cliente HTTP del servicio de bitácora; implementa el Protocol Bitacora que exige el PEP.
 
-disponible() pide GET /salud con timeout de 1 s; registrar(evento) hace POST /eventos con timeout de
-2 s. Cualquier falla de registrar lanza BitacoraNoDisponible y el PEP deniega las operaciones que la
+disponible() pide GET /salud con timeout de 1 s (o BITACORA_TIMEOUT si es menor); registrar(evento)
+hace POST /eventos con timeout BITACORA_TIMEOUT (2 s por defecto, 10 s como máximo). Cualquier falla de registrar lanza BitacoraNoDisponible y el PEP deniega las operaciones que la
 exigen. En la nube el servicio es privado: si BITACORA_AUDIENCE está definida se agrega un token de
 identidad de Google, igual que para OPA. La aplicación nunca habla con la base de la bitácora.
 """
@@ -25,6 +25,10 @@ TIMEOUT_CONSULTA = 10.0
 TIMEOUT_VERIFICACION = 60.0
 MAX_BYTES_RESPUESTA = 16 * 1024 * 1024
 ESTADOS_DISPONIBLES = ("ok", "degradado")
+
+
+def _timeout_registro() -> float:
+    return float(getattr(settings, "BITACORA_TIMEOUT", TIMEOUT_REGISTRO))
 
 
 class ClienteBitacora:
@@ -64,13 +68,13 @@ class ClienteBitacora:
 
     def disponible(self) -> bool:
         try:
-            estado, datos = self._json("GET", "/salud", TIMEOUT_SALUD)
+            estado, datos = self._json("GET", "/salud", min(TIMEOUT_SALUD, _timeout_registro()))
         except BitacoraNoDisponible:
             return False
         return estado == 200 and datos.get("estado") in ESTADOS_DISPONIBLES
 
     def registrar(self, evento: dict) -> dict:
-        estado, datos = self._json("POST", "/eventos", TIMEOUT_REGISTRO, cuerpo=evento)
+        estado, datos = self._json("POST", "/eventos", _timeout_registro(), cuerpo=evento)
         if estado != 201 or not isinstance(datos.get("seq"), int):
             raise BitacoraNoDisponible("La bitácora no confirmó el evento.")
         return datos
@@ -106,13 +110,27 @@ def consultar(pep, sesion, **filtros):
     solo lee dentro de su ventana (Cd3). Con una proyección (bitacora_r7), cada evento se filtra con
     la regla de visibilidad de la política (motor.evento_visible, la misma del Rego).
     Devuelve la lista de eventos (seudonimizados) o la denegación del PEP."""
-    from autorizacion import motor
+    resultado = consultar_con_proyeccion(pep, sesion, **filtros)
+    return resultado if not isinstance(resultado, tuple) else resultado[0]
+
+
+def consultar_con_proyeccion(pep, sesion, **filtros):
+    """Como consultar(), pero una concesión devuelve (eventos, proyección) para que la interfaz
+    serialice con la proyección que decidió la política."""
     from autorizacion.pep import Denegado
 
     resultado = pep.decidir("O7.L", sesion)
     if not resultado.permitido:
         return resultado
     proyeccion = resultado.decision["proyeccion"]
+    eventos = _eventos_visibles(pep, proyeccion, filtros)
+    return eventos if isinstance(eventos, Denegado) else (eventos, proyeccion)
+
+
+def _eventos_visibles(pep, proyeccion, filtros):
+    from autorizacion import motor
+    from autorizacion.pep import Denegado
+
     cliente = pep.bitacora if isinstance(pep.bitacora, ClienteBitacora) else ClienteBitacora()
     try:
         if proyeccion is not None:

@@ -1,4 +1,4 @@
-{% extends "usuarios/base.html" %}
+{% extends "interfaz/base.html" %}
 
 {% block titulo %}Verificar certificado - Verdeazul Carbono{% endblock %}
 
@@ -7,19 +7,40 @@
   {% if no_disponible %}
     <p role="alert">La verificación no está disponible en este momento.</p>
   {% else %}
-    <p>Pegue el certificado en formato JSON. Se comprueba la firma Ed25519 y que la clave sea la del sistema.</p>
-    <form method="post" action="{% url 'verificar' %}">
+    <p>Pegue el certificado en formato JSON o adjunte el archivo (hasta {{ limite }} bytes). Se comprueba por
+       separado la integridad (firma Ed25519 con la clave incluida en el documento) y el emisor (que esa clave
+       sea la <a href="{% url 'clave_publica_pagina' %}">clave pública de Verdeazul</a>).</p>
+    <form method="post" action="{% url 'verificar' %}" enctype="multipart/form-data">
       {% csrf_token %}
       <p>
         <label for="certificado">Certificado (JSON)</label><br>
-        <textarea id="certificado" name="certificado" rows="16" cols="80" required>{{ texto }}</textarea>
+        <textarea id="certificado" name="certificado" rows="12" cols="80"></textarea>
+      </p>
+      <p>
+        <label for="archivo">O adjunte el archivo</label><br>
+        <input type="file" id="archivo" name="archivo" accept="application/json,.json">
       </p>
       <p><button type="submit">Verificar</button></p>
     </form>
+    {% if demasiado_grande %}
+      <p role="alert">El certificado supera el tamaño permitido.</p>
+    {% endif %}
     {% if resultado %}
       <h2>Resultado</h2>
       <p role="status">Estado: {{ resultado.estado }}</p>
-      <p>Detalle: {{ resultado.detalle }}</p>
+      <p class="conclusion" data-conclusion="{{ resultado.conclusion }}">{{ mensaje }}</p>
+      <table>
+        <tbody>
+          <tr>
+            <th>1. Integridad (firma con la clave incluida)</th>
+            <td>{% if resultado.integridad is None %}no evaluable{% elif resultado.integridad %}válida{% else %}inválida{% endif %}</td>
+          </tr>
+          <tr>
+            <th>2. Emisor (clave publicada por Verdeazul)</th>
+            <td>{% if resultado.emisor is None %}no evaluable{% elif resultado.emisor %}coincide{% else %}no coincide{% endif %}</td>
+          </tr>
+        </tbody>
+      </table>
     {% endif %}
   {% endif %}
 {% endblock %}

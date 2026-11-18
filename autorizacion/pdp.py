@@ -1,7 +1,7 @@
 """Cliente del PDP. PDP_BACKEND elige el backend: "opa" (por defecto) o "python" (motor de referencia).
 
-Con OPA, la decisión se pide por HTTP (POST al endpoint de datos de la política) con un timeout de
-2 s. En Cloud Run, si OPA_AUDIENCE está definida, se agrega un token de identidad de Google para
+Con OPA, la decisión se pide por HTTP (POST al endpoint de datos de la política) con el timeout de
+PDP_TIMEOUT (2 s por defecto, 10 s como máximo). En Cloud Run, si OPA_AUDIENCE está definida, se agrega un token de identidad de Google para
 el servicio privado de OPA. Cualquier falla (conexión, timeout, HTTP distinto de 200, respuesta mal
 formada) lanza PDPNoDisponible y el PEP deniega: nunca se reintenta con otro backend, porque un
 cambio de backend silencioso ocultaría una falla de la política.
@@ -125,5 +125,8 @@ def pdp_configurado():
     if backend == "python":
         return MotorPython()
     if backend == "opa":
-        return ClienteOPA(os.environ.get("OPA_URL"), audiencia=os.environ.get("OPA_AUDIENCE") or None)
+        from django.conf import settings
+
+        return ClienteOPA(os.environ.get("OPA_URL"), timeout=float(getattr(settings, "PDP_TIMEOUT", TIMEOUT_SEGUNDOS)),
+                          audiencia=os.environ.get("OPA_AUDIENCE") or None)
     raise ImproperlyConfigured("PDP_BACKEND debe ser 'opa' o 'python'.")

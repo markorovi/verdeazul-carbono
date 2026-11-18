@@ -1,0 +1,21 @@
+{% extends "interfaz/base.html" %}
+
+{% block titulo %}{{ titulo }} - Verdeazul Carbono{% endblock %}
+
+{% block contenido %}
+  <h1>{{ titulo }}</h1>
+  <p class="nota">Solo se muestran las filas que el servidor autoriza; cada consulta queda registrada.</p>
+  {% for fila in filas %}
+    <section class="fila">
+      {% include "interfaz/ficha.html" with ficha=fila.ficha %}
+      {% if fila.ruta %}<p><a href="{{ fila.ruta }}">Ver detalle</a></p>{% endif %}
+    </section>
+  {% empty %}
+    <p>No hay filas para mostrar.</p>
+  {% endfor %}
+  <p>
+    {% if anterior %}<a href="?pagina={{ anterior }}&amp;tamano={{ tamano }}">Anterior</a>{% endif %}
+    Página {{ pagina }}
+    {% if siguiente %}<a href="?pagina={{ siguiente }}&amp;tamano={{ tamano }}">Siguiente</a>{% endif %}
+  </p>
+{% endblock %}
