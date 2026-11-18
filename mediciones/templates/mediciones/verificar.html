@@ -1,25 +1,37 @@
 {% extends "usuarios/base.html" %}
 
 {% block titulo %}Verificar certificado - Verdeazul Carbono{% endblock %}
+{% block main_class %}main-narrow{% endblock %}
 
 {% block contenido %}
-  <h1>Verificar certificado</h1>
+  <div class="page-heading verify-heading">
+    <div>
+      <div class="eyebrow">Confianza verificable</div>
+      <h1>Verificar certificado</h1>
+      <p class="lead">Compruebe la integridad y el origen de un certificado de medición.</p>
+    </div>
+    <div class="verify-seal" aria-hidden="true">✓</div>
+  </div>
   {% if no_disponible %}
-    <p role="alert">La verificación no está disponible en este momento.</p>
+    <p class="alert" role="alert">La verificación no está disponible en este momento.</p>
   {% else %}
-    <p>Pegue el certificado en formato JSON. Se comprueba la firma Ed25519 y que la clave sea la del sistema.</p>
-    <form method="post" action="{% url 'verificar' %}">
-      {% csrf_token %}
-      <p>
-        <label for="certificado">Certificado (JSON)</label><br>
-        <textarea id="certificado" name="certificado" rows="16" cols="80" required>{{ texto }}</textarea>
-      </p>
-      <p><button type="submit">Verificar</button></p>
-    </form>
+    <section class="panel verifier-panel">
+      <p class="muted">Pegue el documento JSON. Se validará la firma Ed25519 frente a la clave pública confiable del sistema.</p>
+      <form method="post" action="{% url 'verificar' %}">
+        {% csrf_token %}
+        <div class="form-field">
+          <label for="certificado">Documento del certificado <span class="label-hint">JSON</span></label>
+          <textarea id="certificado" name="certificado" rows="12" required spellcheck="false" placeholder='{"payload": …}'>{{ texto }}</textarea>
+        </div>
+        <button class="button button-primary" type="submit">Verificar certificado <span aria-hidden="true">→</span></button>
+      </form>
+    </section>
     {% if resultado %}
-      <h2>Resultado</h2>
-      <p role="status">Estado: {{ resultado.estado }}</p>
-      <p>Detalle: {{ resultado.detalle }}</p>
+      <section class="result-card" aria-live="polite">
+        <div class="eyebrow">Resultado de la comprobación</div>
+        <h2>{{ resultado.estado }}</h2>
+        <p>{{ resultado.detalle }}</p>
+      </section>
     {% endif %}
   {% endif %}
 {% endblock %}
