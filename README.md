@@ -193,5 +193,25 @@ python scripts/generar_totp.py             # pide el secreto con entrada oculta 
 
 ## Versiones publicadas
 
-| Imagen | Etiqueta | Commit | Estado |
+Registro: `us-east1-docker.pkg.dev/verdeazul-p2/verdeazul`.
+
+| Imagen | Etiqueta | Commit de origen | Digest |
 | --- | --- | --- | --- |
+| app | v0.1.0 | b6c9955 | `sha256:1b7c821972be07d3884f5ccdce0fc966237382c60c496108f76560830dcc67b4` |
+| app | v0.1.1 | 4a36d80 | `sha256:8751311791f5f5c4928792cc85d97a7a77bd9f4e5fb9d456f0da5eb38ce0e74d` |
+| app | v1.0.0 | bda683e | `sha256:82eb3031e1acec41cbc36bf5a568c4e5be19ecfc7a609471aa6d718a1f7e94de` |
+| app | v1.0.1 | 0cadecc | `sha256:6585cba6ba0ce4d06319817da708f03ea80d8ae4d63394c72209ed41cde2db46` |
+| bitacora | v1.0.0 | bda683e | `sha256:f1b595334aea766eaf9122b97225d5d66a28b0b468933aeed524fa72d20c2d26` |
+| opa | v1.0.0 | bda683e | `sha256:7f4d7c12164ef72089d9245188a953fcebc58c28b732af79445fae27bb7112d6` |
+
+- **app v0.1.0 y v0.1.1:** versiones iniciales de prueba del despliegue.
+- **app v1.0.1:** acepta el archivo exportado completo en la verificación de certificados.
+- **bitacora y opa v1.0.0:** se construyeron desde el commit de la etiqueta v1.0.0.
+
+### Servicios desplegados
+
+| Servicio | Acceso | Versión desplegada |
+| --- | --- | --- |
+| app | Público: https://app-420085492574.us-east1.run.app | v1.0.1 |
+| bitacora | Privado: solo con identidad de servicio (IAM) | v1.0.0 |
+| opa | Privado: solo con identidad de servicio (IAM) | v1.0.0 |
