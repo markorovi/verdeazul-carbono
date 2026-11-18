@@ -109,6 +109,19 @@ class ImagenesTests(SimpleTestCase):
         self.assertIn("USER 65532:65532", self._leer("deploy/opa/Dockerfile"))
         self.assertIn("--addr=0.0.0.0:8080", self._leer("deploy/opa/Dockerfile"))
 
+    def test_sin_salto_de_linea_literal(self):
+        """Un "\\n" literal fuera de comentarios rompe la instrucción (p. ej. un ENV de varias líneas)."""
+        from pathlib import Path
+
+        raiz = Path(__file__).resolve().parent.parent
+        archivos = [raiz / "Dockerfile", *sorted((raiz / "deploy").rglob("Dockerfile*"))]
+        self.assertGreaterEqual(len(archivos), 3)
+        for archivo in archivos:
+            for numero, linea in enumerate(archivo.read_text(encoding="utf-8").splitlines(), start=1):
+                if linea.lstrip().startswith("#"):
+                    continue
+                self.assertNotIn("\\n", linea, f"{archivo.relative_to(raiz).as_posix()}:{numero}")
+
     def test_gunicorn_de_la_aplicacion(self):
         cmd = [l for l in self._leer("Dockerfile").splitlines() if l.startswith("CMD ")][0]
         for parte in ("${PORT:-8080}", "--workers 2", "--threads 4", "--timeout 60"):

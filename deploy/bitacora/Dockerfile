@@ -7,7 +7,8 @@ FROM python:3.13.7-slim-trixie@sha256:5f55cdf0c5d9dc1a415637a5ccc4a9e18663ad2036
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1 \n    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
 
 # Usuario sin privilegios.
 RUN groupadd --gid 10001 bitacora \
