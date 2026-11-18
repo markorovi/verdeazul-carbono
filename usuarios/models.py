@@ -118,34 +118,79 @@ class ExclusionEstatica(models.Model):
 
 
 class VentanaAuditoria(ModeloConUUID):
-    """Período en que un auditor externo (R5) puede consultar."""
+    """Período en que un auditor externo (R5) puede consultar.
+
+    Nace como solicitud (abierta_por nulo) y solo da acceso cuando otra persona la abre; la función
+    de RLS app_ventana_auditoria_vigente ignora las solicitudes sin abrir.
+    """
 
     auditor = models.ForeignKey(Usuario, on_delete=models.PROTECT, related_name="+")
     inicio = models.DateTimeField()
     fin = models.DateTimeField()
-    abierta_por = models.ForeignKey(Usuario, on_delete=models.PROTECT, related_name="+")
+    abierta_por = models.ForeignKey(Usuario, null=True, blank=True, on_delete=models.PROTECT, related_name="+")
     solicitada_por = models.ForeignKey(Usuario, on_delete=models.PROTECT, related_name="+")
+    solicitada_en = models.DateTimeField(null=True, blank=True)
+    abierta_en = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         constraints = [
             models.CheckConstraint(condition=Q(fin__gt=F("inicio")), name="ventana_fin_posterior"),
+            models.CheckConstraint(
+                condition=Q(abierta_en__isnull=True) | Q(abierta_por__isnull=False),
+                name="ventana_apertura_con_autor",
+            ),
+            models.CheckConstraint(
+                condition=~Q(abierta_por=F("solicitada_por")), name="ventana_apertura_independiente"
+            ),
         ]
 
 
+ROLES_SUPLIBLES = ["R1", "R2"]
+
+
 class AccesoEmergencia(ModeloConUUID):
-    """Acceso temporal de solo lectura autorizado por un R4 y un R7 distintos."""
+    """Acceso temporal de solo lectura autorizado por un R4 y un R7 distintos.
+
+    La primera autorización crea el registro pendiente (sin inicio ni fin); la segunda lo activa.
+    """
 
     beneficiario = models.ForeignKey(Usuario, on_delete=models.PROTECT, related_name="+")
-    autorizado_por_r4 = models.ForeignKey(Usuario, on_delete=models.PROTECT, related_name="+")
-    autorizado_por_r7 = models.ForeignKey(Usuario, on_delete=models.PROTECT, related_name="+")
+    autorizado_por_r4 = models.ForeignKey(Usuario, null=True, blank=True, on_delete=models.PROTECT, related_name="+")
+    autorizado_por_r7 = models.ForeignKey(Usuario, null=True, blank=True, on_delete=models.PROTECT, related_name="+")
+    rol_suplido = models.ForeignKey(Rol, null=True, blank=True, on_delete=models.PROTECT, related_name="+")
     perfil = models.CharField(max_length=20, default=PERFIL_SOLO_LECTURA)
-    inicio = models.DateTimeField()
-    fin = models.DateTimeField()
+    inicio = models.DateTimeField(null=True, blank=True)
+    fin = models.DateTimeField(null=True, blank=True)
     usado_en = models.DateTimeField(null=True, blank=True)
     revisado_en = models.DateTimeField(null=True, blank=True)
+    revision_vence_en = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         constraints = [
+            models.CheckConstraint(
+                condition=Q(inicio__isnull=True, fin__isnull=True) | Q(inicio__isnull=False, fin__isnull=False),
+                name="emergencia_vigencia_coherente",
+            ),
+            models.CheckConstraint(
+                condition=Q(inicio__isnull=True)
+                | Q(autorizado_por_r4__isnull=False, autorizado_por_r7__isnull=False),
+                name="emergencia_activa_con_dos_autorizadores",
+            ),
+            models.CheckConstraint(
+                condition=Q(autorizado_por_r4__isnull=False) | Q(autorizado_por_r7__isnull=False),
+                name="emergencia_con_autorizador",
+            ),
+            models.CheckConstraint(
+                condition=Q(inicio__isnull=False) | Q(usado_en__isnull=True, revisado_en__isnull=True),
+                name="emergencia_pendiente_sin_uso",
+            ),
+            models.CheckConstraint(
+                condition=Q(rol_suplido__isnull=True) | Q(rol_suplido__in=ROLES_SUPLIBLES),
+                name="emergencia_rol_suplido",
+            ),
+            models.UniqueConstraint(
+                fields=["beneficiario"], condition=Q(inicio__isnull=True), name="emergencia_una_pendiente"
+            ),
             models.CheckConstraint(
                 condition=Q(perfil=PERFIL_SOLO_LECTURA), name="emergencia_solo_lectura"
             ),
@@ -166,4 +211,40 @@ class AccesoEmergencia(ModeloConUUID):
                 condition=~Q(autorizado_por_r4=F("autorizado_por_r7")),
                 name="emergencia_autorizadores_distintos",
             ),
+        ]
+
+MAX_INTENTOS_CODIGO = 5
+
+
+class CodigoUnUso(ModeloConUUID):
+    """Código de un solo uso para el alta o la recuperación de una cuenta.
+
+    Solo se guarda la huella SHA-256 del código; el código en claro se entrega una vez y no se
+    persiste. Al llegar a MAX_INTENTOS_CODIGO intentos fallidos queda invalidado.
+    """
+
+    class Proposito(models.TextChoices):
+        ALTA = "alta", "Alta"
+        RECUPERACION = "recuperacion", "Recuperación"
+
+    usuario = models.ForeignKey(Usuario, on_delete=models.PROTECT, related_name="+")
+    proposito = models.CharField(max_length=15, choices=Proposito.choices)
+    huella = models.CharField(max_length=64)
+    emitido_por = models.ForeignKey(Usuario, on_delete=models.PROTECT, related_name="+")
+    emitido_en = models.DateTimeField()
+    vence_en = models.DateTimeField()
+    usado_en = models.DateTimeField(null=True, blank=True)
+    intentos_fallidos = models.PositiveSmallIntegerField(default=0, db_default=0)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(proposito__in=["alta", "recuperacion"]), name="codigo_proposito_valido"
+            ),
+            models.CheckConstraint(condition=Q(huella__regex=r"^[0-9a-f]{64}$"), name="codigo_huella_hex"),
+            models.CheckConstraint(condition=Q(vence_en__gt=F("emitido_en")), name="codigo_vence_despues"),
+            models.CheckConstraint(
+                condition=Q(intentos_fallidos__lte=MAX_INTENTOS_CODIGO), name="codigo_intentos_maximos"
+            ),
+            models.UniqueConstraint(fields=["huella"], name="codigo_huella_unica"),
         ]

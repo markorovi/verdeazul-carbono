@@ -1,9 +1,10 @@
-"""Pruebas de TOTP, cifrado y hasher que no necesitan base de datos."""
+"""Pruebas de TOTP, cifrado, hasher, códigos de un solo uso y ventanas que no necesitan base de datos."""
 
 import base64
 import os
 import secrets
 import uuid
+from datetime import datetime, timedelta, timezone
 from unittest import mock
 
 from django.conf import settings
@@ -12,7 +13,7 @@ from django.core.exceptions import ImproperlyConfigured
 from django.core.management.base import CommandError
 from django.test import SimpleTestCase
 
-from usuarios import cifrado, totp
+from usuarios import cifrado, codigos, totp, ventanas
 from usuarios.autenticacion import _hash_ficticio
 from usuarios.management.commands.crear_cuentas_prueba import (
     DOMINIO_POR_DEFECTO,
@@ -146,3 +147,56 @@ class DominioCuentasPruebaTests(SimpleTestCase):
         self.assertEqual(len(cuentas), 7)
         self.assertEqual([rol for _, rol in cuentas], ["R1", "R2", "R3", "R4", "R5", "R6", "R7"])
         self.assertTrue(all(correo.endswith("@autoprueba.test") for correo, _ in cuentas))
+
+def _utc(anio, mes, dia, hora=0):
+    return datetime(anio, mes, dia, hora, tzinfo=timezone.utc)
+
+
+class VentanasTests(SimpleTestCase):
+    def test_dentro_de_un_anio(self):
+        self.assertEqual(ventanas.segundos_por_anio(_utc(2099, 1, 1), _utc(2099, 1, 21)), {2099: 20 * 86400})
+
+    def test_cruza_el_cambio_de_anio(self):
+        partes = ventanas.segundos_por_anio(_utc(2098, 12, 29), _utc(2099, 1, 3, 12))
+        self.assertEqual(partes, {2098: 3 * 86400, 2099: int(2.5 * 86400)})
+
+    def test_limite(self):
+        existentes = [(_utc(2099, 1, 1), _utc(2099, 1, 21))]
+        self.assertFalse(ventanas.excede_limite(existentes, (_utc(2099, 2, 1), _utc(2099, 2, 11)), 30))
+        self.assertTrue(ventanas.excede_limite(existentes, (_utc(2099, 2, 1), _utc(2099, 2, 11, 1)), 30))
+
+    def test_el_limite_es_por_anio(self):
+        existentes = [(_utc(2098, 6, 1), _utc(2098, 6, 30))]
+        self.assertFalse(ventanas.excede_limite(existentes, (_utc(2099, 1, 1), _utc(2099, 1, 30)), 30))
+        cruza = (_utc(2098, 12, 30), _utc(2099, 1, 2))
+        self.assertTrue(ventanas.excede_limite(existentes, cruza, 30))
+
+
+class CodigosTests(SimpleTestCase):
+    ahora = _utc(2099, 1, 1, 12)
+
+    def test_generar_es_de_256_bits_y_unico(self):
+        codigo = codigos.generar()
+        relleno = "=" * (-len(codigo) % 4)
+        self.assertEqual(len(base64.urlsafe_b64decode(codigo + relleno)), 32)
+        self.assertNotEqual(codigo, codigos.generar())
+
+    def test_huella_y_comparacion(self):
+        codigo = codigos.generar()
+        huella = codigos.huella(codigo)
+        self.assertEqual(len(huella), 64)
+        self.assertNotIn(codigo, huella)
+        self.assertTrue(codigos.coincide(huella, codigo))
+        self.assertFalse(codigos.coincide(huella, codigos.generar()))
+
+    def test_vigencias(self):
+        self.assertEqual(codigos.vigencia("alta"), timedelta(hours=24))
+        self.assertEqual(codigos.vigencia("recuperacion"), timedelta(minutes=30))
+
+    def test_disponible(self):
+        vence = self.ahora + timedelta(minutes=1)
+        self.assertTrue(codigos.disponible(vence, None, 0, self.ahora))
+        self.assertTrue(codigos.disponible(vence, None, 4, self.ahora))
+        self.assertFalse(codigos.disponible(vence, None, 5, self.ahora))
+        self.assertFalse(codigos.disponible(vence, self.ahora, 0, self.ahora))
+        self.assertFalse(codigos.disponible(self.ahora, None, 0, self.ahora))

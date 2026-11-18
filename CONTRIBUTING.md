@@ -252,6 +252,66 @@ También siguen sembrados `wc_horas`, `wl_dias` y los `h2_*` de la regla H2.
 python scripts/probar_catalogo.py
 ```
 
+## Servicios de cuentas, ventanas, emergencia y recuperación
+
+`usuarios/servicios.py` sigue el patrón de los demás servicios.
+
+- Hace cumplir Cd13 (nadie opera sobre sus propios roles ni sobre su propia cuenta; sin pares de roles excluyentes), Cd23 (ventanas de auditoría) y Cd24 (emergencia).
+- El rol del **actor** lo decide la autorización.
+- El rol de las **cuentas afectadas** sí lo comprueba el servicio: auditor solo R5, autorizadores R4 y R7, rol suplido R1 o R2.
+
+### Servicios y condiciones
+
+| Servicio | Condiciones |
+| --- | --- |
+| `alta_cuenta` | Correo único (CUENTA). La cuenta nace con `creado_por` = actor, sin contraseña utilizable y sin roles. Devuelve **una vez** un código de alta. |
+| `modificar_cuenta` | Solo el nombre. Roles, credenciales y estado tienen servicios propios, y `app_rw` no puede cambiar el correo. |
+| `asignar_rol` | Cd13: el actor no se asigna roles a sí mismo y el rol no forma un par excluyente con los vigentes (ExclusionEstatica, que la base también impone con un disparador). |
+| `revocar_rol` | Cd13: el actor no se revoca roles a sí mismo. |
+| `dar_de_baja_cuenta` | Cd13: el actor no se da de baja a sí mismo. Baja lógica: cierra las sesiones de la cuenta e invalida sus códigos pendientes. |
+| `solicitar_ventana` | Cd23: destino solo R5 y fin posterior al inicio. La solicitud no da acceso. |
+| `abrir_ventana` | Cd23: solicitud pendiente de otra persona, destino solo R5 y a lo sumo `waud_dias_anuales` días de ventanas abiertas por año calendario. Se abre una sola vez. |
+| `autorizar_emergencia` | Cd24: doble control, explicado abajo. |
+| `acceso_emergencia_vigente`, `consumir_emergencia` | Lectura del rol suplido vigente y consumo de un solo uso, para el punto de decisión de acceso. |
+| `emitir_recuperacion` | Código de recuperación para otra cuenta con segundo factor. Invalida los pendientes y avisa a R7. |
+| `canjear_codigo` | Sin sesión. Explicado abajo. |
+
+**Días de ventana:** se cuenta la duración real (segundos / 86400). Una ventana que cruza el cambio de año suma a cada año solo la parte que cae en él (fechas UTC).
+
+**Doble control de emergencia (`autorizar_emergencia`):**
+
+- La primera autorización (R4 o R7) crea un registro pendiente. La segunda, de otra persona con el rol complementario, lo activa.
+- El beneficiario no puede ser autorizador. El rol suplido es R1 o R2, con perfil de solo lectura.
+- Vence en `min(temg_horas, 4 h)`; las 4 h son el tope del CHECK `emergencia_duracion_maxima`.
+- Es de un solo uso.
+- Queda con la revisión pendiente hasta `trev_emg_horas` y registra un aviso prioritario a R7.
+
+### Códigos de un solo uso (`usuarios_codigounuso`)
+
+- **Formato:** 256 bits aleatorios (`secrets.token_urlsafe(32)`). Solo se guarda su SHA-256 y se compara con `hmac.compare_digest`. El código en claro se entrega una vez y no se guarda.
+- **Vigencia:** 24 horas para el alta y 30 minutos para la recuperación (`usuarios/codigos.py`).
+- **Un solo uso**, con consumo atómico.
+- **Intentos:** cada fallo suma un intento a los códigos pendientes de la cuenta. Con 5 intentos el código queda invalidado.
+- **Permisos de la base:** `app_rw` tiene SELECT e INSERT, y UPDATE solo sobre `usado_en` e `intentos_fallidos`. Un disparador impide usar un código dos veces o bajar sus intentos.
+- **Canje (`canjear_codigo(codigo, correo=..., contrasena=..., codigo_totp=...)`):**
+  - **Alta:** fija la contraseña inicial y genera el secreto TOTP, que se devuelve una vez. Se confirma en el primer inicio de sesión.
+  - **Recuperación:** exige además un código TOTP vigente de la cuenta y cierra sus sesiones.
+  - **Fallas del código o del TOTP:** todas lanzan la misma `ReglaIncumplida("RECUPERACION")`, sin revelar si la cuenta existe.
+  - **Contraseña que no cumple la política:** lanza `CONTRASENA` y no consume el código.
+- **Contraseñas:** Argon2id y los validadores del proyecto (similitud, mínimo de 12, comunes, numéricas). Se admiten frases largas con espacios y no hay reglas de composición.
+
+### Limitaciones
+
+- **Segundo factor perdido:** no hay recuperación sin TOTP. El procedimiento es dar de baja la cuenta y que R4 dé de alta una nueva, con revisión de R7.
+- **Sin canal de correo:** el sistema no envía correos. El código de alta o de recuperación lo entrega el administrador por un canal fuera del sistema. La notificación al titular se cubre con el aviso a R7 y con un aviso visible en el siguiente inicio de sesión, que se construirá con la interfaz.
+
+### Pruebas
+
+```powershell
+. .\scripts\entorno_dev.ps1 -Pruebas
+python scripts/probar_cuentas.py
+```
+
 ## Producción
 
 - El corte y las migraciones de producción los hace **solo el dueño del proyecto**, con `scripts/entorno_prod.ps1` (modos `-Migrador` y `-App`) y `scripts/reporte_bd.py`. `entorno_prod.ps1` y `configurar_bd.py --entorno prod` exigen escribir `PRODUCCION`.

@@ -362,6 +362,54 @@ def c26():
     return resultado(ok, f"R3 sin propósito {sin_proposito}; con propósito {con_proposito}; certificados {certificados_con_proposito}")
 
 
+def c33():
+    d = Datos()
+    ctx = d.con_medicion(d.finca(), "certificada")
+    vistas = {}
+    for rol in ("R4", "R3"):
+        d.actor(d.usuario(rol))
+        d.sql("SELECT set_config('app.proposito', 'catalogo', true)")
+        vistas[rol] = Medicion.objects.filter(pk=ctx["medicion"]).count()
+        d.sql("SELECT set_config('app.proposito', '', true)")
+    return resultado(vistas == {"R4": 0, "R3": 1}, f"con propósito catálogo: sin R3 {vistas['R4']}; con R3 {vistas['R3']}")
+
+
+def asignacion_previa(d: Datos, tecnico, parcela) -> uuid.UUID:
+    """Asignación que empezó hace una hora, como la de una transacción anterior."""
+    asignacion_id = uuid.uuid4()
+    d.sql(
+        "INSERT INTO catalogo_asignacion (id, tecnico_id, parcela_id, desde, hasta)"
+        " VALUES (%s, %s, %s, now() - interval '1 hour', now() + interval '30 days')",
+        [asignacion_id, tecnico.pk, parcela],
+    )
+    return asignacion_id
+
+
+def c34():
+    d = Datos()
+    ctx = d.finca()
+    parcela = d.parcela(ctx)
+    tecnico = d.usuario("R1")
+    asignacion_previa(d, tecnico, parcela)
+    periodo = servicios.abrir_periodo(ctx["r7"], ps.INICIO, ps.FIN).periodo_id
+    catalogo.dar_de_baja_parcela(ctx["r3"], parcela)
+    obtenido = condicion(lambda: servicios.registrar_medicion(
+        tecnico, parcela, periodo, co2e_toneladas=ps.CO2E_BAJO, fecha_muestreo=ps.FECHA))
+    return resultado(obtenido == "VIGENCIA", obtenido)
+
+
+def c35():
+    d = Datos()
+    ctx = d.finca()
+    parcela = d.parcela(ctx)
+    asignacion = asignacion_previa(d, d.usuario("R1"), parcela)
+    r = catalogo.dar_de_baja_parcela(ctx["r3"], parcela)
+    hasta = Asignacion.objects.filter(pk=asignacion).values_list("hasta", flat=True).get()
+    vigentes = Asignacion.objects.filter(parcela_id=parcela, hasta__gt=hora_de_la_base()).count()
+    return resultado(hasta == r.dada_de_baja_en and vigentes == 0,
+                     f"asignación terminada en la fecha de baja={hasta == r.dada_de_baja_en}; vigentes={vigentes}")
+
+
 # --------------------------------------------------------------------------- alertas
 
 
@@ -457,6 +505,9 @@ PRUEBAS = [
     ("C30", "Resolver con justificación corta", "Cd18", c30),
     ("C31", "Resolver una alerta ya resuelta", "Cd18", c31),
     ("C32", "La base rechaza que resuelva una parte de la alerta", "23514, 23514", c32),
+    ("C33", "Propósito catálogo sin R3 no ve mediciones", "0; con R3 1", c33),
+    ("C34", "Registrar medición en parcela dada de baja", "VIGENCIA", c34),
+    ("C35", "La baja de la parcela termina las asignaciones vigentes", "fin = fecha de baja", c35),
 ]
 
 

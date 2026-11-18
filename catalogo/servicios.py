@@ -328,12 +328,20 @@ def asignar_tecnico(actor, parcela_id, tecnico_id, vence_en: datetime) -> Asigna
 
 @_servicio
 def dar_de_baja_parcela(actor, parcela_id) -> ParcelaResultado:
-    """Baja lógica (dada_de_baja_en = now()). Cd15: sin mediciones en curso ni certificado vigente."""
+    """Baja lógica (dada_de_baja_en = now()). Cd15: sin mediciones en curso ni certificado vigente.
+
+    En la misma transacción termina las asignaciones de técnicos vigentes (hasta = now()); como Cd15
+    exige que no haya mediciones en curso, no queda trabajo abierto. Una asignación que todavía no
+    empezó no puede terminar antes de su inicio (CHECK asignacion_hasta_posterior): se conserva, y
+    registrar_medicion rechaza igual cualquier medición sobre una parcela dada de baja.
+    """
     parcela = _parcela_bloqueada(parcela_id)
     en_curso, certificada = _situacion_de_mediciones([parcela.pk])
     if en_curso:
         raise ReglaIncumplida("Cd15", "la parcela tiene mediciones en curso")
     if certificada:
         raise ReglaIncumplida("Cd15", "la parcela tiene un certificado vigente")
-    Parcela.objects.filter(pk=parcela.pk).update(dada_de_baja_en=transaccion.hora_de_la_base())
+    ahora = transaccion.hora_de_la_base()
+    Asignacion.objects.filter(parcela_id=parcela.pk, desde__lt=ahora, hasta__gt=ahora).update(hasta=ahora)
+    Parcela.objects.filter(pk=parcela.pk).update(dada_de_baja_en=ahora)
     return _resultado_parcela(parcela.pk)

@@ -288,6 +288,15 @@ def registrar_medicion(actor, parcela_id, periodo_id, *, co2e_toneladas: Decimal
     estado_periodo, _ = _periodo_compartido(periodo_id)
     if estado_periodo != ABIERTO:
         raise ReglaIncumplida("Cd5", "el período no está abierto")
+    # FOR SHARE choca con el FOR UPDATE de la baja de la parcela: o la baja espera a este registro
+    # (y Cd15 lo verá en curso) o el registro ve la parcela ya dada de baja.
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT dada_de_baja_en FROM catalogo_parcela WHERE id = %s FOR SHARE", [parcela_id])
+        fila = cursor.fetchone()
+    if fila is None:
+        raise NoEncontrado("La parcela no existe.")
+    if fila[0] is not None:
+        raise ReglaIncumplida("VIGENCIA", "la parcela está dada de baja")
     medicion = Medicion.objects.create(parcela_id=parcela_id, periodo_id=periodo_id, registrada_por=actor)
     version = _crear_version(medicion.pk, 1, actor.pk, co2e_toneladas, fecha_muestreo, notas)
     return MedicionResultado(medicion.pk, BORRADOR, 1, version.numero, version.huella)
