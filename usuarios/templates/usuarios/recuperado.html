@@ -1,0 +1,15 @@
+{% extends "interfaz/base.html" %}
+
+{% block titulo %}Cuenta lista - Verdeazul Carbono{% endblock %}
+
+{% block contenido %}
+  <h1>Cuenta lista</h1>
+  {% if alta %}
+    <p>Registre este secreto en su aplicación autenticadora. Se muestra solo esta vez.</p>
+    <p>Secreto: <code>{{ secreto }}</code></p>
+    <p>Enlace de aprovisionamiento: <code>{{ uri }}</code></p>
+  {% else %}
+    <p>La contraseña se actualizó y se cerraron las sesiones abiertas de la cuenta.</p>
+  {% endif %}
+  <p><a href="{% url 'acceso' %}">Iniciar sesión</a></p>
+{% endblock %}

@@ -40,31 +40,125 @@ SECRET_KEY = os.environ["SECRET_KEY"]
 
 DEBUG = EN_LOCAL
 
-ALLOWED_HOSTS = [".run.app", "localhost", "127.0.0.1"]
 
-CSRF_TRUSTED_ORIGINS = ["https://*.run.app"]
+def _lista(nombre: str, defecto: list[str]) -> list[str]:
+    """Lista separada por comas de una variable de entorno; sin la variable, el valor por defecto."""
+    valor = os.environ.get(nombre)
+    if valor is None:
+        return list(defecto)
+    return [parte.strip() for parte in valor.split(",") if parte.strip()]
 
+
+def _segundos(nombre: str, defecto: float = 2.0, minimo: float = 0.1, maximo: float = 10.0) -> float:
+    """Timeout en segundos de una variable de entorno, acotado. Un valor inválido detiene el arranque."""
+    valor = os.environ.get(nombre)
+    if valor is None or not valor.strip():
+        return defecto
+    try:
+        segundos = float(valor)
+    except ValueError:
+        raise ImproperlyConfigured(f"{nombre} debe ser un número de segundos.") from None
+    if not minimo <= segundos <= maximo:
+        raise ImproperlyConfigured(f"{nombre} debe estar entre {minimo} y {maximo} segundos.")
+    return segundos
+
+
+def _entero(nombre: str, defecto: int, minimo: int, maximo: int) -> int:
+    valor = os.environ.get(nombre)
+    if valor is None or not valor.strip():
+        return defecto
+    try:
+        numero = int(valor)
+    except ValueError:
+        raise ImproperlyConfigured(f"{nombre} debe ser un entero.") from None
+    if not minimo <= numero <= maximo:
+        raise ImproperlyConfigured(f"{nombre} debe estar entre {minimo} y {maximo}.")
+    return numero
+
+
+# Hosts y orígenes de confianza: llegan por variables de entorno (listas separadas por comas). En
+# producción, sin ALLOWED_HOSTS no se atiende ningún host (Django responde 400): falla cerrado. Sin
+# CSRF_TRUSTED_ORIGINS solo vale el propio origen, que es lo que necesita la interfaz.
+ALLOWED_HOSTS = _lista("ALLOWED_HOSTS", ["localhost", "127.0.0.1"] if EN_LOCAL else [])
+CSRF_TRUSTED_ORIGINS = _lista("CSRF_TRUSTED_ORIGINS", [])
+
+# Seguro por defecto: solo ENTORNO=local (prohibido en Cloud Run) apaga HTTPS, Secure y HSTS.
 # Cloud Run termina TLS en el proxy y reenvía X-Forwarded-Proto.
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 SECURE_SSL_REDIRECT = not EN_LOCAL
 SESSION_COOKIE_SECURE = not EN_LOCAL
 CSRF_COOKIE_SECURE = not EN_LOCAL
 SECURE_HSTS_SECONDS = 0 if EN_LOCAL else 31536000
+SECURE_HSTS_INCLUDE_SUBDOMAINS = not EN_LOCAL
+# security.W021 (HSTS preload) se acepta: la lista de precarga exige registrar el dominio raíz, y
+# run.app no es nuestro; anunciar "preload" sin poder registrarlo no agrega protección.
+SILENCED_SYSTEM_CHECKS = ["security.W021"]
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_REFERRER_POLICY = "same-origin"
+SECURE_CROSS_ORIGIN_OPENER_POLICY = "same-origin"
+X_FRAME_OPTIONS = "DENY"
+
+SESSION_COOKIE_AGE = 1800
+SESSION_SAVE_EVERY_REQUEST = True
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = "Lax"
+CSRF_COOKIE_SAMESITE = "Strict"
+CSRF_COOKIE_HTTPONLY = True
+CSRF_FAILURE_VIEW = "interfaz.errores.csrf_fallido"
+
+# Tamaño máximo del cuerpo de una petición. El middleware de interfaz rechaza con 413 todo cuerpo
+# declarado mayor; Django además limita lo que lee de formularios y archivos.
+LIMITE_CUERPO_BYTES = 256 * 1024
+DATA_UPLOAD_MAX_MEMORY_SIZE = LIMITE_CUERPO_BYTES
+FILE_UPLOAD_MAX_MEMORY_SIZE = LIMITE_CUERPO_BYTES
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 100
+DATA_UPLOAD_MAX_NUMBER_FILES = 1
+
+# Proxies de confianza delante de la aplicación. Cloud Run agrega la IP real del cliente AL FINAL de
+# X-Forwarded-For; con 1 proxy se toma la última entrada, nunca la primera (la controla el cliente).
+# Supuesto a verificar en el despliegue (ver CONTRIBUTING.md).
+TRUSTED_PROXY_COUNT = _entero("TRUSTED_PROXY_COUNT", 1, 0, 5)
+
+# Filas por página en las listas de la interfaz (10 por defecto, 20 como máximo). Cada fila de una
+# lista ligada a una parcela es una decisión del PEP: en producción se puede bajar si son lentas.
+LISTA_TAMANO_PAGINA = _entero("LISTA_TAMANO_PAGINA", 10, 1, 20)
+
+# Timeouts de los servicios de los que depende cada decisión (2 s por defecto, 10 s como máximo).
+BITACORA_TIMEOUT = _segundos("BITACORA_TIMEOUT")
+PDP_TIMEOUT = _segundos("PDP_TIMEOUT")
+
+# Oculta en los reportes de error cualquier valor cuyo nombre contenga DATABASE (p. ej. DATABASE_URL).
+DEFAULT_EXCEPTION_REPORTER_FILTER = "config.seguridad.FiltroReporteSeguro"
+
+# Bitácora: la aplicación habla con el servicio (bitacora_svc), nunca con su base. En local, el
+# servicio escucha en loopback; en producción la URL es obligatoria y el servicio es privado
+# (Cloud Run con IAM): BITACORA_AUDIENCE activa el token de identidad.
+BITACORA_CLIENTE = "autorizacion.cliente_bitacora.ClienteBitacora"
+BITACORA_URL = os.environ.get("BITACORA_URL", "http://127.0.0.1:8090" if EN_LOCAL else "")
+BITACORA_AUDIENCE = os.environ.get("BITACORA_AUDIENCE") or None
 
 
 # Application definition
 
 INSTALLED_APPS = [
-    'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'usuarios',
+    'catalogo',
+    'mediciones',
+    'autorizacion',
+    'interfaz',
 ]
 
+AUTH_USER_MODEL = "usuarios.Usuario"
+
 MIDDLEWARE = [
+    'interfaz.seguridad.LimiteDeCuerpo',
     'django.middleware.security.SecurityMiddleware',
+    'interfaz.seguridad.EncabezadosDeSeguridad',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -101,15 +195,30 @@ DATABASES = {
 }
 
 
-# Password validation
-# https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
+# Autenticación: un único hasher (Argon2id) y segundo factor TOTP propio.
+
+PASSWORD_HASHERS = ["usuarios.hashers.Argon2idHasher"]
+
+AUTHENTICATION_BACKENDS = ["usuarios.autenticacion.BackendCorreo"]
+
+LOGIN_URL = "/acceso/"
+
+# Los eventos de seguridad (logger "verdeazul.*") salen por consola; Cloud Run los recoge.
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {"consola": {"class": "logging.StreamHandler"}},
+    "loggers": {"verdeazul": {"handlers": ["consola"], "level": "INFO"}},
+}
 
 AUTH_PASSWORD_VALIDATORS = [
     {
         'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
+        'OPTIONS': {'user_attributes': ("correo", "nombre")},
     },
     {
         'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+        'OPTIONS': {'min_length': 12},
     },
     {
         'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
@@ -135,7 +244,9 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
-STATIC_URL = 'static/'
+# Un solo archivo estático (la hoja de estilos); lo sirve interfaz.vistas.estatico desde una lista
+# cerrada, sin depender de DEBUG ni de dependencias nuevas.
+STATIC_URL = '/estaticos/'
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field

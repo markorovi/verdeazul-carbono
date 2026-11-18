@@ -11,3 +11,12 @@ CLAUDE.md
 *.sqlite3
 *.db-journal
 local.db
+.env.*
+# Ruta local del binario de OPA (fuera del repositorio)
+.opa_local.json
+# Credenciales de las cuentas de demostracion (sembrar_demo exige una ruta fuera del repositorio)
+credenciales_demo*
+*.credenciales.json
+*.p12
+*.pfx
+.envrc

@@ -1,0 +1,26 @@
+<table>
+  <thead>
+    <tr><th>Código</th><th>Operación</th><th>Acceso</th></tr>
+  </thead>
+  <tbody>
+    {% for fila in filas %}
+      <tr>
+        <td>{{ fila.codigo }}</td>
+        <td>{{ fila.etiqueta }}</td>
+        <td>
+          {% if fila.con_objeto %}
+            <form method="get" action="{% url 'ir_a_operacion' %}" class="en-linea">
+              <input type="hidden" name="clave" value="{{ fila.clave }}">
+              <label>Identificador ({{ fila.objeto }}) <input type="text" name="objeto" required maxlength="36"></label>
+              <button type="submit">Abrir</button>
+            </form>
+          {% elif fila.ruta %}
+            <a href="{{ fila.ruta }}">Abrir</a>
+          {% endif %}
+        </td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="3">Ninguna.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>

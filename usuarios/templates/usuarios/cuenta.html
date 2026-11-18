@@ -1,0 +1,28 @@
+{% extends "interfaz/base.html" %}
+
+{% block titulo %}Mi cuenta - Verdeazul Carbono{% endblock %}
+
+{% block contenido %}
+  <h1>Mi cuenta</h1>
+  {% if avisos %}
+    <section role="alert" class="avisos-titular">
+      <h2>Cambios en su cuenta desde su último acceso</h2>
+      <ul>
+        {% for aviso in avisos %}<li>{{ aviso }}</li>{% endfor %}
+      </ul>
+      <p>Si no los reconoce, avise a la administración.</p>
+    </section>
+  {% endif %}
+  <p>Correo: {{ user.correo }}</p>
+  <h2>Roles vigentes</h2>
+  {% if roles %}
+    <ul>
+      {% for codigo, nombre in roles %}
+        <li>{{ codigo }} {{ nombre }}</li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p>No tiene roles vigentes.</p>
+  {% endif %}
+  <p><a href="{% url 'consola' %}">Ir a las operaciones</a></p>
+{% endblock %}

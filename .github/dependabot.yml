@@ -1,10 +1,29 @@
+# Actualizaciones de dependencias. Solo los ecosistemas que existen en el repositorio: no hay
+# workflows de GitHub Actions, así que ese ecosistema no se declara.
 version: 2
 updates:
   - package-ecosystem: "pip"
     directory: "/"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 5
+  - package-ecosystem: "pip"
+    directory: "/bitacora_svc"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
   - package-ecosystem: "docker"
     directory: "/"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 5
+  - package-ecosystem: "docker"
+    directory: "/deploy/opa"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+  - package-ecosystem: "docker"
+    directory: "/deploy/bitacora"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5

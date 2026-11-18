@@ -1,0 +1,17 @@
+{% extends "interfaz/base.html" %}
+
+{% block titulo %}{{ titulo }} - Verdeazul Carbono{% endblock %}
+
+{% block contenido %}
+  <h1>{{ titulo }}</h1>
+  {% include "interfaz/ficha.html" with ficha=ficha %}
+  {% if acciones %}
+    <h2>Operaciones sobre este objeto</h2>
+    <ul>
+      {% for etiqueta, ruta in acciones %}
+        <li><a href="{{ ruta }}">{{ etiqueta }}</a></li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+  <p><a href="{% url 'consola' %}">Volver a las operaciones</a></p>
+{% endblock %}
