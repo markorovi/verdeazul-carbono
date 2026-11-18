@@ -12,10 +12,18 @@ del intento), salvo Cd9, que falla degradado en la política.
 
 El cliente nunca ve la condición de una denegación: Denegado.publico() es un mensaje genérico; la
 condición queda en el resultado interno y en el evento de bitácora.
+
+Eventos de bitácora (contrato en bitacora_svc/contrato.py): el intento antes de ejecutar (si no se
+registra, se deniega) y el resultado después; toda denegación con su regla; las lecturas de R7
+(Cd17, si no se registran se deniega) y, con mejor esfuerzo, las demás lecturas de O1, O3, O4 y O5.
+La exportación registra la huella SHA-256 de lo exportado. Una falla no tipificada de un servicio
+guarda solo la clase de la excepción, nunca su mensaje.
 """
 
 from __future__ import annotations
 
+import hashlib
+import re
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -28,6 +36,7 @@ from autorizacion import motor, pip
 from autorizacion.bitacora import Bitacora, bitacora_configurada
 from autorizacion.models import RegistroAcceso
 from autorizacion.pdp import pdp_configurado
+from autorizacion.version import version_politica
 from mediciones import alertas, firma
 from mediciones.contexto import como_actor
 from mediciones.errores import NoEncontrado, ReglaIncumplida
@@ -63,6 +72,8 @@ class Sesion:
     segundo_factor_en: float | None = None
     # Perfil de emergencia ya consumido: {"rol_suplido": "R2", "vence_en": ISO 8601}.
     emergencia: dict | None = None
+    # SHA-256 de la clave de sesión: la bitácora nunca recibe la clave misma.
+    huella_sesion: str | None = None
 
     def con_segundo_factor(self) -> bool:
         return self.usuario is not None and self.nivel_autenticacion >= NIVEL_SEGUNDO_FACTOR
@@ -82,11 +93,13 @@ def sesion_desde_request(request) -> Sesion:
         momento = datos.get(autenticacion.CLAVE_MFA)
         con_mfa = isinstance(momento, (int, float))
         emergencia = datos.get(CLAVE_EMERGENCIA)
+        clave = getattr(datos, "session_key", None)
         return Sesion(
             usuario=usuario,
             nivel_autenticacion=NIVEL_SEGUNDO_FACTOR if con_mfa else NIVEL_CONTRASENA,
             segundo_factor_en=momento if con_mfa else None,
             emergencia=emergencia if isinstance(emergencia, dict) else None,
+            huella_sesion=hashlib.sha256(clave.encode("utf-8")).hexdigest() if clave else None,
         )
     if datos.get(autenticacion.CLAVE_PRE_AUTH):
         return Sesion(nivel_autenticacion=NIVEL_CONTRASENA)
@@ -246,15 +259,26 @@ class PEP:
         except Exception:
             return None
 
-    def _evento(self, tipo: str, operacion: str, sesion: Sesion, objeto: pip.Objeto, **datos) -> dict:
-        return {
-            "tipo": tipo,
+    def _evento(self, accion: str, operacion: str, sesion: Sesion, objeto: pip.Objeto, roles=(), hechos=None,
+                **campos) -> dict:
+        """Evento con el contrato de la bitácora. Los campos nulos se omiten; el servicio calcula seq,
+        sello, clase, el seudónimo del usuario y los hashes, y descarta esos campos si llegan."""
+        detalle = hechos.detalle if hechos is not None else {}
+        evento = {
+            "accion": accion,
+            "origen": "pep",
             "operacion": operacion,
-            "sujeto": firma.seudonimo(sesion.usuario.pk) if sesion.usuario is not None else None,
-            "objeto": {"tipo": objeto.tipo, "id": str(objeto.id) if objeto.id is not None else None},
-            **datos,
+            "version_politica": version_politica(),
+            "usuario_id": str(sesion.usuario.pk) if sesion.usuario is not None else None,
+            "rol_activo": ",".join(roles) or None,
+            "sesion": sesion.huella_sesion,
+            "objeto_tipo": objeto.tipo,
+            "objeto_id": str(objeto.id) if objeto.id is not None else None,
+            "finca_id": detalle.get("finca_id"),
+            "periodo_id": detalle.get("periodo_id"),
+            **campos,
         }
-
+        return {clave: valor for clave, valor in evento.items() if valor is not None}
     def _registrar_evento(self, evento: dict) -> bool:
         try:
             self.bitacora.registrar(evento)
@@ -317,15 +341,24 @@ class PEP:
         except Exception:
             return Denegado(DEFECTO, "no se pudo resolver el perfil de emergencia")
         with transaction.atomic(), como_actor(sesion.usuario.pk):
-            resultado, cerrar = self._decidir(operacion, sesion, objeto)
+            resultado, cerrar, roles, hechos = self._decidir(operacion, sesion, objeto)
         if cerrar:
             self.cerrar_sesion(sesion)
         if not resultado.permitido:
-            self._registrar_evento(self._evento("denegado", operacion, sesion, objeto, condicion=resultado.condicion))
+            self._registrar_evento(self._evento(
+                "denegacion", operacion, sesion, objeto, roles, hechos,
+                decision="denegado", regla=resultado.condicion, resultado="denegado",
+            ))
+        elif (_es_lectura(operacion) and not resultado.decision["registrar_lectura"]
+              and motor.objeto_de(operacion) in OBJETOS_DE_LECTURA_REGISTRADA):
+            # Mejor esfuerzo: la lectura ya se concedió y quedó en autorizacion_registroacceso.
+            self._registrar_evento(self._evento(
+                "lectura", operacion, sesion, objeto, roles, hechos, decision="concedido", resultado="concedido",
+            ))
         return resultado
 
-    def _decidir(self, operacion, sesion, objeto) -> tuple[Concedido | Denegado, bool]:
-        lectura = motor.tipo_de(operacion) == "L" if "." in operacion else False
+    def _decidir(self, operacion, sesion, objeto):
+        lectura = _es_lectura(operacion)
         propios = self._roles_propios(sesion)
         roles = self._roles_efectivos(sesion, propios)
         try:
@@ -333,32 +366,32 @@ class PEP:
                 hechos = pip.reunir(sesion, roles, operacion, objeto, self.bitacora)
         except Exception:
             hechos = pip.Hechos({})
-            return self._denegar_lectura(sesion, operacion, hechos, lectura, DEFECTO, "falla del PIP"), False
+            return self._denegar_lectura(sesion, operacion, hechos, lectura, DEFECTO, "falla del PIP"), False, roles, None
         decision = self._consultar(self._entrada(operacion, sesion, propios, hechos))
         if decision is None:
-            return self._denegar_lectura(sesion, operacion, hechos, lectura, DEFECTO, "falla del PDP"), False
+            return self._denegar_lectura(sesion, operacion, hechos, lectura, DEFECTO, "falla del PDP"), False, roles, hechos
         if not decision["permitir"]:
             denegado = self._denegar_lectura(sesion, operacion, hechos, lectura, decision["razon"], "política")
             if decision["razon"] == "Cd2" and lectura:
                 self._alerta_denegaciones_cd2(sesion)
-            return denegado, motor.RESTRICCION_CERRAR in decision["restricciones"]
+            return denegado, motor.RESTRICCION_CERRAR in decision["restricciones"], roles, hechos
         if motor.RESTRICCION_2FA in decision["restricciones"] and not sesion.segundo_factor_reciente():
             raise ReautenticacionRequerida("La operación exige un segundo factor reciente.")
         if motor.RESTRICCION_AVISO in decision["restricciones"]:
             try:
                 self._aviso_umbral_blando(sesion, operacion)
             except Exception:
-                return self._denegar_lectura(sesion, operacion, hechos, lectura, "Cd9", "aviso a R7 no registrado"), False
-        if decision["registrar_lectura"] and not self._registrar_evento(
-            self._evento("lectura", operacion, sesion, objeto, proyeccion=decision["proyeccion"])
-        ):
-            return self._denegar_lectura(sesion, operacion, hechos, lectura, "Cd17", "lectura no registrada"), False
+                return self._denegar_lectura(sesion, operacion, hechos, lectura, "Cd9", "aviso a R7 no registrado"), False, roles, hechos
+        if decision["registrar_lectura"] and not self._registrar_evento(self._evento(
+            "lectura", operacion, sesion, objeto, roles, hechos, decision="concedido", resultado="concedido",
+        )):
+            return self._denegar_lectura(sesion, operacion, hechos, lectura, "Cd17", "lectura no registrada"), False, roles, hechos
         if lectura:
             try:
                 self._registrar_acceso(sesion, operacion, hechos, RegistroAcceso.Resultado.CONCEDIDO, None)
             except Exception:
-                return Denegado(DEFECTO, "registro del intento fallido"), False
-        return Concedido(decision), False
+                return Denegado(DEFECTO, "registro del intento fallido"), False, roles, hechos
+        return Concedido(decision), False, roles, hechos
 
     def _denegar_lectura(self, sesion, operacion, hechos, lectura, condicion, motivo) -> Denegado:
         if lectura:
@@ -367,7 +400,6 @@ class PEP:
             except Exception:
                 pass
         return Denegado(condicion, motivo)
-
     # ----------------------------------------------------------------------- escrituras
 
     def servicio_de(self, operacion: str, nombre: str | None):
@@ -389,29 +421,40 @@ class PEP:
             raise ValueError("Las lecturas pasan por decidir().")
         nombre, funcion, declaradas = self.servicio_de(operacion, servicio)
         objeto = objeto or pip.Objeto()
-        resultado = self._ejecutar(operacion, sesion, objeto, nombre, funcion, declaradas, argumentos)
-        tipo = "resultado" if resultado.permitido else "denegado"
-        datos = {"servicio": nombre} if resultado.permitido else {"servicio": nombre, "condicion": resultado.condicion}
-        if sesion.usuario is not None:
-            self._registrar_evento(self._evento(tipo, operacion, sesion, objeto, **datos))
+        contexto = {"roles": [], "hechos": None, "resultado": "denegado", "error_clase": None}
+        resultado = self._ejecutar(operacion, sesion, objeto, nombre, funcion, declaradas, argumentos, contexto)
+        if sesion.usuario is None:
+            return resultado
+        if resultado.permitido:
+            accion = "exportacion" if operacion == motor.OPERACION_EXPORTAR else "resultado"
+            campos = {"decision": "concedido", "resultado": "exito", **_huellas(resultado.resultado)}
+        else:
+            accion = "denegacion"
+            campos = {"decision": "denegado", "regla": resultado.condicion, "resultado": contexto["resultado"],
+                      "error_clase": contexto["error_clase"]}
+        # Mejor esfuerzo: el intento quedó registrado como condición para ejecutar.
+        self._registrar_evento(self._evento(
+            accion, operacion, sesion, objeto, contexto["roles"], contexto["hechos"], servicio=nombre, **campos,
+        ))
         return resultado
 
-    def _ejecutar(self, operacion, sesion, objeto, nombre, funcion, declaradas, argumentos):
+    def _ejecutar(self, operacion, sesion, objeto, nombre, funcion, declaradas, argumentos, contexto):
         if not self._autenticada(sesion):
             return Denegado(DEFECTO, "sin sesión autenticada")
         try:
             self._preparar_emergencia(sesion)
         except Exception:
             return Denegado(DEFECTO, "no se pudo resolver el perfil de emergencia")
-        cerrar = False
         with transaction.atomic(), como_actor(sesion.usuario.pk):
             propios = self._roles_propios(sesion)
             roles = self._roles_efectivos(sesion, propios)
+            contexto["roles"] = roles
             try:
                 with transaction.atomic():
                     hechos = pip.reunir(sesion, roles, operacion, objeto, self.bitacora)
             except Exception:
                 return Denegado(DEFECTO, "falla del PIP")
+            contexto["hechos"] = hechos
             permisos = motor.matriz()["operaciones"].get(operacion) or {}
             candidatas = [c for r in roles for c in permisos.get(r, [])]
             dependiente = next((c for c in candidatas if c in motor.politica()["condiciones_bitacora"]), None)
@@ -421,8 +464,7 @@ class PEP:
         if decision is None:
             return Denegado(DEFECTO, "falla del PDP")
         if not decision["permitir"]:
-            cerrar = motor.RESTRICCION_CERRAR in decision["restricciones"]
-            if cerrar:
+            if motor.RESTRICCION_CERRAR in decision["restricciones"]:
                 self.cerrar_sesion(sesion)
             return Denegado(decision["razon"], "política")
         if motor.RESTRICCION_2FA in decision["restricciones"] and not sesion.segundo_factor_reciente():
@@ -430,19 +472,47 @@ class PEP:
         faltantes = [c for c in decision["condiciones_servicio"] if c not in declaradas]
         if faltantes:
             return Denegado(faltantes[0], f"el servicio {nombre} no declara aplicar la condición")
-        if not self._registrar_evento(self._evento("intento", operacion, sesion, objeto, servicio=nombre)):
+        if not self._registrar_evento(self._evento(
+            "intento", operacion, sesion, objeto, roles, hechos, servicio=nombre, decision="concedido",
+            resultado="concedido",
+        )):
             return Denegado(dependiente or DEFECTO, "no se pudo registrar el intento")
         try:
             resultado = funcion(sesion.usuario, **argumentos)
         except ReglaIncumplida as error:
+            contexto["resultado"] = "rechazado"
             return Denegado(error.condicion, error.motivo)
         except NoEncontrado:
+            contexto["resultado"] = "rechazado"
             return Denegado(DEFECTO, "objeto no encontrado")
         except ReautenticacionRequerida:
             raise
-        except Exception:
+        except Exception as error:
             # Falla no tipificada del servicio (por ejemplo, el aviso obligatorio que no se registra):
-            # se deniega con la condición de servicio que la operación exige.
+            # se deniega con la condición de servicio que la operación exige. A la bitácora solo va la
+            # clase de la excepción; su mensaje podría traer datos.
+            contexto["resultado"], contexto["error_clase"] = "error", type(error).__name__
             servicio_condiciones = decision["condiciones_servicio"]
             return Denegado(servicio_condiciones[0] if servicio_condiciones else DEFECTO, "falla del servicio")
         return Concedido(decision, resultado)
+
+
+_HEX64 = re.compile(r"^[0-9a-f]{64}$")
+# Lecturas que la bitácora registra siempre (mediciones, períodos, certificados, enmiendas y fincas).
+OBJETOS_DE_LECTURA_REGISTRADA = ("O1", "O2", "O3", "O4", "O5")
+
+
+def _es_lectura(operacion: str) -> bool:
+    return "." in operacion and motor.tipo_de(operacion) == "L"
+
+
+def _huellas(resultado) -> dict:
+    """Huellas que el servicio devuelve: la del documento exportado y la de la versión resultante."""
+    campos = {}
+    exportada = getattr(resultado, "huella_sha256", None)
+    if isinstance(exportada, str) and _HEX64.match(exportada):
+        campos["huella_exportacion"] = exportada
+    posterior = getattr(resultado, "huella", None)
+    if isinstance(posterior, str) and _HEX64.match(posterior):
+        campos["huella_posterior"] = posterior
+    return campos

@@ -30,9 +30,37 @@ RUTA_BACKEND = "usuarios.autenticacion.BackendCorreo"
 logger = logging.getLogger("verdeazul.autenticacion")
 
 
+EVENTO_BLOQUEO = "bloqueo"
+# Evento local -> eventos de bitácora (acción, resultado).
+EVENTOS_DE_BITACORA = {
+    ("acceso_exitoso", None): (("segundo_factor", "exito"), ("inicio_sesion", "exito")),
+    ("acceso_fallido", "totp_invalido"): (("segundo_factor", "fallo"),),
+    ("acceso_fallido", None): (("inicio_sesion", "fallo"),),
+    (EVENTO_BLOQUEO, None): (("bloqueo", "exito"),),
+}
+
+
+def _a_bitacora(evento: str, motivo: str, usuario_id) -> None:
+    """Mejor esfuerzo: si la bitácora no responde, el inicio de sesión sigue y queda un registro
+    local del fallo, sin datos sensibles (solo el evento y la clase del error)."""
+    pares = EVENTOS_DE_BITACORA.get((evento, motivo)) or EVENTOS_DE_BITACORA.get((evento, None), ())
+    for accion, resultado in pares:
+        datos = {"accion": accion, "origen": "autenticacion", "resultado": resultado, "motivo": motivo}
+        if usuario_id is not None:
+            datos["usuario_id"] = str(usuario_id)
+        try:
+            from autorizacion.cliente_bitacora import cliente_configurado
+
+            cliente_configurado().registrar(datos)
+        except Exception as error:
+            logger.warning("evento=bitacora_no_disponible origen=autenticacion accion=%s clase=%s",
+                           accion, type(error).__name__)
+
+
 def registrar_evento(evento: str, motivo: str, usuario_id=None) -> None:
     """Nunca recibe contraseñas, códigos, secretos ni correos de cuentas inexistentes."""
     logger.info("evento=%s motivo=%s usuario=%s", evento, motivo, usuario_id or "-")
+    _a_bitacora(evento, motivo, usuario_id)
 
 
 @lru_cache(maxsize=1)
@@ -59,6 +87,8 @@ def registrar_fallo(usuario_id, motivo: str) -> None:
         ),
     )
     registrar_evento("acceso_fallido", motivo, usuario_id)
+    if Usuario.objects.filter(pk=usuario_id, bloqueado_hasta=bloqueo).exists():
+        registrar_evento(EVENTO_BLOQUEO, "maximo_intentos", usuario_id)
 
 
 class BackendCorreo(BaseBackend):

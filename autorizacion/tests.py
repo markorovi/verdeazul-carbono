@@ -4,6 +4,7 @@ import inspect
 import json
 import threading
 import time
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest import mock
 
@@ -324,3 +325,60 @@ class ConfiguracionTests(SimpleTestCase):
     def test_denegado_publico_es_generico(self):
         publico = pep.Denegado("Cd8", "detalle interno").publico()
         self.assertEqual(publico, {"permitido": False, "mensaje": pep.MENSAJE_GENERICO})
+
+class EventosDeBitacoraTests(SimpleTestCase):
+    def test_evento_del_pep_cumple_el_contrato(self):
+        from bitacora_svc import contrato
+
+        p = pep.PEP(bitacora=BitacoraEnMemoria(), pdp=pdp.MotorPython())
+        sesion = pep.Sesion(mock.Mock(pk=uuid.uuid4()), pep.NIVEL_SEGUNDO_FACTOR, time.time(), huella_sesion="a" * 64)
+        hechos = pip.Hechos({}, None, True, {"finca_id": str(uuid.uuid4()), "periodo_id": None})
+        evento = p._evento("intento", "O1.Ap", sesion, pip.Objeto("medicion", uuid.uuid4()), ["R2"], hechos,
+                           servicio="aprobar_medicion", decision="concedido", resultado="concedido")
+        self.assertEqual(contrato.validar(evento), evento)
+        self.assertNotIn("periodo_id", evento)
+        denegacion = p._evento("denegacion", "O1.MdC", sesion, pip.Objeto(), ["R1", "R3"],
+                               decision="denegado", regla="defecto", resultado="denegado", error_clase="RuntimeError")
+        self.assertEqual(contrato.validar(denegacion)["rol_activo"], "R1,R3")
+
+    def test_version_de_politica(self):
+        from autorizacion import version
+
+        self.assertRegex(version.version_politica(), r"^[0-9a-f]{64}$")
+        self.assertEqual(version.calcular(), version.version_politica())
+
+    def test_huellas_que_devuelve_el_servicio(self):
+        resultado = mock.Mock(huella_sha256="b" * 64, huella="c" * 64)
+        self.assertEqual(pep._huellas(resultado), {"huella_exportacion": "b" * 64, "huella_posterior": "c" * 64})
+        self.assertEqual(pep._huellas(object()), {})
+
+    def test_proyeccion_de_la_bitacora_para_r7(self):
+        self.assertEqual(motor.decidir(entrada("O7.L", ["R7"]))["proyeccion"], "bitacora_r7")
+        self.assertIsNone(motor.decidir(entrada("O7.L", ["R5"]))["proyeccion"])
+
+class VisibilidadDeLaBitacoraTests(SimpleTestCase):
+    def test_r7_ve_certificacion_y_administracion_de_cuentas_y_alertas(self):
+        visibles = [
+            {"clase": "certificacion", "operacion": "O1.Ap"},
+            {"clase": "administracion", "operacion": "O6.AR"},
+            {"clase": "administracion", "operacion": "O8.Rs"},
+        ]
+        for evento in visibles:
+            with self.subTest(evento=evento):
+                self.assertTrue(motor.evento_visible("bitacora_r7", evento))
+
+    def test_r7_no_ve_accesos_lecturas_ni_otra_administracion(self):
+        ocultos = [
+            {"clase": "acceso", "accion": "inicio_sesion"},
+            {"clase": "acceso", "accion": "denegacion", "operacion": "O1.MdC"},
+            {"clase": "consulta", "accion": "lectura", "operacion": "O1.L"},
+            {"clase": "administracion", "operacion": "O5.Cr"},
+            {"clase": "administracion", "accion": "version_politica"},
+        ]
+        for evento in ocultos:
+            with self.subTest(evento=evento):
+                self.assertFalse(motor.evento_visible("bitacora_r7", evento))
+
+    def test_sin_proyeccion_se_ve_todo_y_una_desconocida_nada(self):
+        self.assertTrue(motor.evento_visible(None, {"clase": "acceso"}))
+        self.assertFalse(motor.evento_visible("otra", {"clase": "certificacion"}))

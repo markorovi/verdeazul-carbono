@@ -538,7 +538,7 @@ def k40():
     d = Datos()
     ctx = d.base()
     salida = P().decidir("O1.L", S(ctx["r7"]), Objeto("medicion", ctx["medicion"]))
-    registrada = any(e["tipo"] == "lectura" for e in ENTORNO.bitacora.eventos)
+    registrada = any(e["accion"] == "lectura" for e in ENTORNO.bitacora.eventos)
     return salida, registrada, f"lectura registrada={registrada}"
 
 

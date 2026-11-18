@@ -66,7 +66,7 @@ class MotorPython:
             raise PDPNoDisponible("El motor de referencia falló.") from None
 
 
-class _TokenDeIdentidad:
+class TokenDeIdentidad:
     def __init__(self, audiencia: str):
         self.audiencia = audiencia
         self._token = None
@@ -91,7 +91,7 @@ class ClienteOPA:
     def __init__(self, url: str | None = None, timeout: float = TIMEOUT_SEGUNDOS, audiencia: str | None = None):
         self.url = (url or OPA_URL_LOCAL).rstrip("/") + RUTA_DECISION
         self.timeout = timeout
-        self._token = _TokenDeIdentidad(audiencia) if audiencia else None
+        self._token = TokenDeIdentidad(audiencia) if audiencia else None
 
     def decidir(self, entrada: dict) -> dict:
         cuerpo = json.dumps({"input": entrada}).encode("utf-8")

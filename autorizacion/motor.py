@@ -117,12 +117,16 @@ def _conceder(operacion: str, condiciones: list, rol: str, h2: str) -> dict:
     if "Cd9" in condiciones and h2 == H2_BLANDO:
         restricciones.update({RESTRICCION_2FA, RESTRICCION_AVISO})
     servicio = set(matriz()["condiciones_servicio"])
+    if "Cd16" in condiciones:
+        proyeccion = p["proyecciones"].get(rol)
+    else:
+        proyeccion = p["proyecciones_por_operacion"].get(operacion, {}).get(rol)
     return {
         "permitir": True,
         "razon": None,
         "restricciones": sorted(restricciones),
         "condiciones_servicio": [c for c in condiciones if c in servicio],
-        "proyeccion": p["proyecciones"].get(rol) if "Cd16" in condiciones else None,
+        "proyeccion": proyeccion,
         "registrar_lectura": "Cd17" in condiciones,
     }
 
@@ -134,6 +138,24 @@ def _emergencia_prohibida(operacion: str, emergencia: dict) -> bool:
         or tipo_de(operacion) != "L"
         or objeto_de(operacion) not in p["objetos_emergencia"]
     )
+
+
+def evento_visible(proyeccion: str | None, evento: dict) -> bool:
+    """Visibilidad de un evento de bitácora bajo una proyección (misma regla que el Rego).
+
+    Sin proyección se ve todo (el auditor, dentro de su ventana). Con bitacora_r7, R7 ve la clase
+    certificación y la administración de cuentas, roles, ventanas, emergencia y alertas (O6 y O8);
+    nunca los accesos (autenticación y denegaciones) ni el detalle de lecturas.
+    """
+    if proyeccion is None:
+        return True
+    regla = politica()["visibilidad_bitacora"].get(proyeccion)
+    if regla is None:
+        return False
+    if evento.get("clase") in regla["clases"]:
+        return True
+    operacion = evento.get("operacion") or ""
+    return evento.get("clase") == "administracion" and operacion.split(".", 1)[0] in regla["administracion_objetos"]
 
 
 def decidir(entrada: dict) -> dict:

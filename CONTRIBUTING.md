@@ -399,6 +399,116 @@ python scripts/probar_autorizacion.py
 3. Corre los 70 casos de punta a punta (PEP, PIP, política y servicios) comparando OPA con Python en cada decisión.
 4. Prueba los fallos que deben denegar, el perfil de emergencia y la alerta por Cd2.
 
+## Bitácora
+
+La bitácora es un servicio aparte (`bitacora_svc/`), con su propia base y su propia cuenta (`bit_rw`, solo SELECT e INSERT).
+
+- La aplicación nunca habla con esa base: usa el cliente `autorizacion/cliente_bitacora.py` (`BITACORA_URL` y, en la nube, `BITACORA_AUDIENCE`).
+- El contrato completo, el esquema del evento y la fórmula del hash están en `bitacora_svc/BITACORA.md`.
+- El servicio **no debe exponerse públicamente**: en la nube es privado (Cloud Run con IAM) y en dev escucha solo en loopback.
+
+### Contrato y fórmula
+
+- **Esquema cerrado** de textos, con tope de 16 KiB:
+  - obligatorios: `accion`, `origen` y `resultado`;
+  - opcionales: usuario, rol, huella de sesión, operación, objeto, finca, período, decisión, regla, huellas y versión de política.
+- **Campos del servicio:** el servicio calcula `seq`, `sello`, `clase`, el seudónimo del usuario, `hash_previo` y `hash`, y descarta esos campos si llegan del cliente.
+- **Hash:** `hash_n = SHA-256(hash_{n-1} en hex ASCII || JSON canónico del evento n sin hash ni hash_previo)`.
+  - JSON canónico: claves ordenadas, separadores `(",", ":")`, `ensure_ascii=False` y UTF-8.
+  - `hash_0` son 64 ceros.
+- **Puntos de control:** `(seq, hash, fecha)` firmados con Ed25519 (`BITACORA_SIGNING_KEY`, distinta de `CERT_SIGNING_KEY`), en un almacén WORM: `puntos/{seq}.json`, local o en un bucket con retención bloqueada.
+- **Seudónimo:** HMAC-SHA256(`BITACORA_SALT`, identificador), truncado a 32 hex. La sal es solo del servicio.
+
+### Los datos no se pueden borrar
+
+- Las tablas son de solo anexar: los disparadores rechazan UPDATE, DELETE y TRUNCATE para cualquier rol, incluido el propietario.
+- **No escriba eventos de prueba en el esquema `bitacora`.** Las pruebas crean un esquema temporal por corrida y lo destruyen al final.
+- La retención (10 años para certificación y administración, 24 meses para consulta y acceso) es política documentada, sin purga automática.
+
+### Cuenta propietaria del esquema (solo dev)
+
+El esquema lo aplica `bit_migrador`, propietario de esos objetos en la base de bitácora. Lo crea el dueño del proyecto con SQL, no desde el panel de Neon, para que no sea miembro de `neon_superuser`. La contraseña se define aparte y nunca se escribe en el repositorio:
+
+```sql
+CREATE ROLE bit_migrador LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+GRANT CONNECT, CREATE ON DATABASE neondb TO bit_migrador;
+GRANT USAGE, CREATE ON SCHEMA public TO bit_migrador;
+```
+
+- Su cadena va en el secreto `DEV_DATABASE_URL_BITACORA_MIGRADOR`, que es **solo de desarrollo**.
+- `entorno_dev.ps1 -Pruebas` la carga en `DATABASE_URL_BITACORA_MIGRADOR`, sin mostrarla.
+- La cuenta de servicio de Cloud Run **no debe tener acceso** a ese secreto.
+- Solo se usa para aplicar el esquema y para crear y destruir los esquemas temporales de las pruebas; nunca contra el negocio ni contra producción.
+
+Aplicar el esquema en dev (si ya existe, no hace nada):
+
+```powershell
+. .\scripts\entorno_dev.ps1 -Pruebas
+python scripts/aplicar_esquema_bitacora.py
+```
+
+### Servicio local
+
+El servicio lee sus llaves del entorno. Para probarlo a mano, genere llaves efímeras en la sesión, sin mostrarlas ni guardarlas:
+
+```powershell
+. .\scripts\entorno_dev.ps1 -Pruebas
+$generador = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+$sal = New-Object byte[] 32; $generador.GetBytes($sal); $env:BITACORA_SALT = [Convert]::ToBase64String($sal)
+$semilla = New-Object byte[] 32; $generador.GetBytes($semilla); $env:BITACORA_SIGNING_KEY = [Convert]::ToBase64String($semilla)
+$env:BITACORA_DATABASE_URL = $env:DATABASE_URL_BITACORA
+$env:BITACORA_WORM = 'local'; $env:BITACORA_WORM_DESTINO = Join-Path $env:TEMP 'bitacora_worm'
+python -m bitacora_svc --puerto 8090
+```
+
+Con esas llaves efímeras los puntos solo se pueden verificar mientras dure la sesión. La llave y la sal reales se crean y se rotan fuera de Claude Code, solo por el dueño del proyecto.
+
+### Verificador del auditor
+
+```powershell
+python scripts\verify_bitacora.py --eventos bitacora.jsonl --puntos carpeta_puntos --huella <SHA-256 de la clave pública> --cada 25
+```
+
+| Código | Significado |
+| --- | --- |
+| `0` | íntegra |
+| `1` | cadena rota o con huecos |
+| `2` | firma o clave no confiable |
+| `3` | un punto no coincide (cadena reescrita) |
+| `4` | formato inválido |
+| `5` | faltan puntos (advertencia) |
+
+`python manage.py verificar_bitacora` verifica desde el servicio. Si falla, alerta a R7 con prioridad alta. `python manage.py registrar_version_politica` registra la versión de la política cuando cambia.
+
+### Eventos y fail-closed
+
+- **PEP:**
+  - registra el intento antes de ejecutar y, si no se registra, deniega;
+  - registra el resultado después;
+  - registra toda denegación con su regla;
+  - registra las lecturas de R7 (Cd17) y, si no se registran, deniega.
+- **Autenticación:** se registra con mejor esfuerzo. Si la bitácora no responde, el inicio de sesión sigue y queda un registro local del fallo, sin datos sensibles.
+- **Proyección de R7 (`bitacora_r7`):** R7 consulta solo la clase certificación y la administración de cuentas, roles, ventanas, emergencia y alertas (O6 y O8). No ve accesos ni lecturas. El auditor ve todo dentro de su ventana.
+
+### Pruebas
+
+```powershell
+. .\scripts\entorno_dev.ps1 -Pruebas
+python manage.py test bitacora_svc
+python scripts/probar_bitacora.py
+```
+
+`probar_bitacora.py` arranca el servicio en loopback, con llaves efímeras y un almacén WORM temporal. Crea y destruye dos esquemas temporales de bitácora y deja los conteos del negocio iguales.
+
+### Despliegue
+
+Ver `deploy/bitacora/Dockerfile`: imagen `python:3.15-slim`, usuario 10001, puerto 8080, gunicorn. Requiere:
+
+- una cuenta de servicio propia;
+- los secretos `DATABASE_URL_BITACORA`, `BITACORA_SALT` y `BITACORA_SIGNING_KEY`, con acceso solo para esa cuenta;
+- un bucket con retención bloqueada (`BITACORA_WORM=gcs`);
+- `roles/run.invoker` solo para la cuenta de la aplicación.
+
 ## Producción
 
 - El corte y las migraciones de producción los hace **solo el dueño del proyecto**, con `scripts/entorno_prod.ps1` (modos `-Migrador` y `-App`) y `scripts/reporte_bd.py`. `entorno_prod.ps1` y `configurar_bd.py --entorno prod` exigen escribir `PRODUCCION`.

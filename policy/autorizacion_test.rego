@@ -123,6 +123,24 @@ test_cd16_proyeccion if {
 	sin.razon == "Cd16"
 }
 
+test_proyeccion_de_la_bitacora_para_r7 if {
+	d := autorizacion.decision with input as entrada("O7.L", ["R7"], {})
+	d.proyeccion == "bitacora_r7"
+	auditor := autorizacion.decision with input as entrada("O7.L", ["R5"], {})
+	auditor.proyeccion == null
+}
+
+test_visibilidad_de_la_bitacora_para_r7 if {
+	autorizacion.evento_visible("bitacora_r7", {"clase": "certificacion", "operacion": "O1.Ap"})
+	autorizacion.evento_visible("bitacora_r7", {"clase": "administracion", "operacion": "O6.AR"})
+	autorizacion.evento_visible("bitacora_r7", {"clase": "administracion", "operacion": "O8.Rs"})
+	not autorizacion.evento_visible("bitacora_r7", {"clase": "administracion", "operacion": "O5.Cr"})
+	not autorizacion.evento_visible("bitacora_r7", {"clase": "administracion", "accion": "version_politica"})
+	not autorizacion.evento_visible("bitacora_r7", {"clase": "acceso", "accion": "inicio_sesion"})
+	not autorizacion.evento_visible("bitacora_r7", {"clase": "acceso", "accion": "denegacion"})
+	not autorizacion.evento_visible("bitacora_r7", {"clase": "consulta", "accion": "lectura"})
+}
+
 test_cd17_registra_lectura if {
 	d := autorizacion.decision with input as entrada("O1.L", ["R7"], {})
 	d.registrar_lectura

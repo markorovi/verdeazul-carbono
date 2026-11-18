@@ -61,6 +61,13 @@ CSRF_COOKIE_HTTPONLY = True
 # Oculta en los reportes de error cualquier valor cuyo nombre contenga DATABASE (p. ej. DATABASE_URL).
 DEFAULT_EXCEPTION_REPORTER_FILTER = "config.seguridad.FiltroReporteSeguro"
 
+# Bitácora: la aplicación habla con el servicio (bitacora_svc), nunca con su base. En local, el
+# servicio escucha en loopback; en producción la URL es obligatoria y el servicio es privado
+# (Cloud Run con IAM): BITACORA_AUDIENCE activa el token de identidad.
+BITACORA_CLIENTE = "autorizacion.cliente_bitacora.ClienteBitacora"
+BITACORA_URL = os.environ.get("BITACORA_URL", "http://127.0.0.1:8090" if EN_LOCAL else "")
+BITACORA_AUDIENCE = os.environ.get("BITACORA_AUDIENCE") or None
+
 
 # Application definition
 

@@ -172,7 +172,18 @@ requiere("aviso_r7", rol) if {
 
 proyeccion(rol) := politica.proyecciones[rol] if "Cd16" in permisos[rol]
 
+else := p if p := politica.proyecciones_por_operacion[operacion][rol]
+
 else := null
+
+# Visibilidad de un evento de bitácora bajo una proyección (misma regla que motor.evento_visible).
+# bitacora_r7: certificación y la administración de O6 y O8; nunca accesos ni lecturas.
+evento_visible(proyeccion, evento) if evento.clase in politica.visibilidad_bitacora[proyeccion].clases
+
+evento_visible(proyeccion, evento) if {
+	evento.clase == "administracion"
+	split(object.get(evento, "operacion", ""), ".")[0] in politica.visibilidad_bitacora[proyeccion].administracion_objetos
+}
 
 conceder(rol) := {
 	"permitir": true,

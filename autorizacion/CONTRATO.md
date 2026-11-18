@@ -76,7 +76,9 @@ Solo lleva identificadores seudónimos y banderas: ningún dato personal y ning�
   - `aviso_r7`: Cd9 en umbral blando.
   - `cerrar_sesion`: solo acompaña la denegación por Cd9 en umbral duro.
 - `condiciones_servicio`: las condiciones de servicio que exige el permiso concedido. El PEP comprueba que el servicio invocado declare aplicarlas.
-- `proyeccion`: `tecnico`, `auditor` o `dueno` cuando el permiso incluye Cd16; si no, `null`.
+- `proyeccion`: `tecnico`, `auditor` o `dueno` cuando el permiso incluye Cd16; `bitacora_r7` cuando R7 lee la bitácora (O7.L); si no, `null`.
+  - Con `bitacora_r7`, la regla `evento_visible` (Rego) o `motor.evento_visible` (Python) deja ver solo la clase `certificacion` y la `administracion` de O6 y O8.
+  - Ninguna de las dos deja ver accesos ni lecturas. Los datos de la regla están en `politica.json` (`visibilidad_bitacora`).
 - `registrar_lectura`: `true` cuando el permiso incluye Cd17.
 
 ## Composición

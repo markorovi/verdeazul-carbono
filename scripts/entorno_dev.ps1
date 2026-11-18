@@ -6,7 +6,8 @@
     Se usa con punto para que las variables queden en la sesion:
         . .\scripts\entorno_dev.ps1            # DATABASE_URL = app_rw
         . .\scripts\entorno_dev.ps1 -Migrador  # DATABASE_URL = migrador (para migraciones)
-        . .\scripts\entorno_dev.ps1 -Pruebas   # ademas DATABASE_URL_APP y DATABASE_URL_MIGRADOR
+        . .\scripts\entorno_dev.ps1 -Pruebas   # ademas DATABASE_URL_APP, DATABASE_URL_MIGRADOR
+                                               # y DATABASE_URL_BITACORA_MIGRADOR (bit_migrador)
 
     Lee las cadenas de Secret Manager (proyecto verdeazul-p2), la clave CLAVE_TOTP y la clave de
     firma CERT_SIGNING_KEY sin mostrarlas y sin escribirlas en disco. Si algo falla, no modifica
@@ -23,6 +24,9 @@ param(
     $secretoApp = 'DEV_DATABASE_URL_APP'
     $secretoMigrador = 'DEV_DATABASE_URL_MIGRADOR'
     $secretoBitacora = 'DEV_DATABASE_URL_BITACORA'
+    # Propietario del esquema de la base de bitacora: solo para aplicar el esquema y para las
+    # pruebas que crean y destruyen esquemas temporales. Nunca lo usa la aplicacion.
+    $secretoBitacoraMigrador = 'DEV_DATABASE_URL_BITACORA_MIGRADOR'
     $secretoClaveTotp = 'DEV_CLAVE_TOTP'
     $secretoFirma = 'DEV_CERT_SIGNING_KEY'
     $patronUrl = '[A-Za-z][A-Za-z0-9+.\-]*://\S+'
@@ -77,7 +81,7 @@ param(
     $rol = if ($Migrador) { 'migrador' } else { 'app_rw' }
 
     $necesarios = @($secretoPrincipal, $secretoBitacora, $secretoClaveTotp, $secretoFirma)
-    if ($Pruebas) { $necesarios += @($secretoApp, $secretoMigrador) }
+    if ($Pruebas) { $necesarios += @($secretoApp, $secretoMigrador, $secretoBitacoraMigrador) }
 
     # Se leen todos antes de definir nada: si uno falla, la sesion queda como estaba.
     $valores = @{}
@@ -99,10 +103,11 @@ param(
     if ($Pruebas) {
         $env:DATABASE_URL_APP = $valores[$secretoApp]
         $env:DATABASE_URL_MIGRADOR = $valores[$secretoMigrador]
+        $env:DATABASE_URL_BITACORA_MIGRADOR = $valores[$secretoBitacoraMigrador]
     }
 
     Write-Host "Entorno dev cargado: DATABASE_URL = $rol; valores no mostrados"
     if ($Pruebas) {
-        Write-Host 'Pruebas: DATABASE_URL_APP y DATABASE_URL_MIGRADOR definidas; valores no mostrados'
+        Write-Host 'Pruebas: DATABASE_URL_APP, DATABASE_URL_MIGRADOR y DATABASE_URL_BITACORA_MIGRADOR definidas; valores no mostrados'
     }
 }

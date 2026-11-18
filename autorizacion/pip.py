@@ -52,6 +52,7 @@ class _Contexto:
     # Fecha del objeto para Cd2: un instante (emisión) o un período (inicio, fin).
     instante: datetime | None
     periodo: tuple[datetime, datetime] | None
+    periodo_id: uuid.UUID | None = None
 
 
 def condiciones_necesarias(operacion: str, roles) -> list[str]:
@@ -78,25 +79,27 @@ def _dia(fecha) -> datetime:
 
 def _contexto(objeto: Objeto) -> _Contexto:
     vacio = _Contexto(None, None, None, None, None)
+    if objeto.tipo == "periodo":
+        return _Contexto(None, None, None, None, None, objeto.id)
     if objeto.tipo == "parcela":
         finca = Parcela.objects.filter(pk=objeto.id).values_list("finca_id", flat=True).first()
         return _Contexto(objeto.id if finca else None, finca, None, None, None)
     if objeto.tipo == "medicion":
         fila = (
             Medicion.objects.filter(pk=objeto.id)
-            .values_list("parcela_id", "parcela__finca_id", "estado", "periodo__inicio", "periodo__fin")
+            .values_list("parcela_id", "parcela__finca_id", "estado", "periodo__inicio", "periodo__fin", "periodo_id")
             .first()
         )
         if fila is None:
             return vacio
-        return _Contexto(fila[0], fila[1], fila[2], None, (_dia(fila[3]), _dia(fila[4]) + timedelta(days=1)))
+        return _Contexto(fila[0], fila[1], fila[2], None, (_dia(fila[3]), _dia(fila[4]) + timedelta(days=1)), fila[5])
     if objeto.tipo == "certificado":
         fila = (
             Certificado.objects.filter(pk=objeto.id)
-            .values_list("parcela_id", "parcela__finca_id", "emitido_en")
+            .values_list("parcela_id", "parcela__finca_id", "emitido_en", "periodo_id")
             .first()
         )
-        return vacio if fila is None else _Contexto(fila[0], fila[1], None, fila[2], None)
+        return vacio if fila is None else _Contexto(fila[0], fila[1], None, fila[2], None, fila[3])
     if objeto.tipo == "enmienda":
         medicion = Enmienda.objects.filter(pk=objeto.id).values_list("medicion_id", flat=True).first()
         return vacio if medicion is None else _contexto(Objeto("medicion", medicion))
@@ -230,4 +233,8 @@ def reunir(sesion, roles, operacion: str, objeto: Objeto, bitacora) -> Hechos:
     ajena = True
     if "Cd9" in necesarias or operacion == motor.OPERACION_EXPORTAR:
         hechos["h2"], ajena = _h2(sujeto_id, roles, contexto)
-    return Hechos(hechos, contexto.parcela_id, ajena)
+    detalle = {
+        "finca_id": str(contexto.finca_id) if contexto.finca_id else None,
+        "periodo_id": str(contexto.periodo_id) if contexto.periodo_id else None,
+    }
+    return Hechos(hechos, contexto.parcela_id, ajena, detalle)
