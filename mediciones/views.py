@@ -31,6 +31,7 @@ CONCLUSIONES = {
     ALTERADO: "Alterado: la firma no corresponde al contenido.",
     FORMATO_INVALIDO: "Formato inválido: no es un certificado de Verdeazul.",
 }
+AVISO_ENVOLTORIO = "Se verificó el objeto certificado; estado y trazabilidad no están firmados."
 
 
 def _huella_confiable() -> str | None:
@@ -50,20 +51,28 @@ def _datos_publicos() -> dict:
 
 
 def evaluar(texto: str, huella: str) -> dict:
-    """Integridad y emisor por separado, más la conclusión. Solo estados y textos fijos."""
+    """Integridad y emisor por separado, más la conclusión. Solo estados y textos fijos.
+
+    Acepta también el archivo exportado (O3.Ex): se verifica su objeto certificado y "envoltorio"
+    indica que estado y trazabilidad quedaron fuera de la verificación.
+    """
     try:
         documento = json.loads(texto)
     except ValueError:
         documento = None
-    integridad = firma.verificar(documento, None)
+    certificado = firma.objeto_a_verificar(documento)
+    envoltorio = certificado is not documento
+    integridad = firma.verificar(certificado, None)
     if integridad.estado == firma.ESTADO_FORMATO_INVALIDO:
-        return {"conclusion": FORMATO_INVALIDO, "estado": integridad.estado, "integridad": None, "emisor": None}
+        return {"conclusion": FORMATO_INVALIDO, "estado": integridad.estado, "integridad": None, "emisor": None,
+                "envoltorio": envoltorio}
     if integridad.estado == firma.ESTADO_FIRMA_INVALIDA:
-        return {"conclusion": ALTERADO, "estado": integridad.estado, "integridad": False, "emisor": None}
-    emisor = firma.verificar(documento, huella)
+        return {"conclusion": ALTERADO, "estado": integridad.estado, "integridad": False, "emisor": None,
+                "envoltorio": envoltorio}
+    emisor = firma.verificar(certificado, huella)
     propio = emisor.estado == firma.ESTADO_VALIDO
     return {"conclusion": INTEGRO_VERDEAZUL if propio else INTEGRO_OTRA_CLAVE, "estado": emisor.estado,
-            "integridad": True, "emisor": propio}
+            "integridad": True, "emisor": propio, "envoltorio": envoltorio}
 
 
 def _texto_enviado(request) -> tuple[str | None, int]:
@@ -121,4 +130,6 @@ def verificar(request):
             return render(request, "mediciones/verificar.html", {**contexto, "demasiado_grande": True}, status=codigo)
         contexto["resultado"] = evaluar(texto, huella)
         contexto["mensaje"] = CONCLUSIONES[contexto["resultado"]["conclusion"]]
+        if contexto["resultado"]["envoltorio"]:
+            contexto["aviso"] = AVISO_ENVOLTORIO
     return render(request, "mediciones/verificar.html", contexto)

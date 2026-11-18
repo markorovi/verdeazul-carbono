@@ -668,6 +668,75 @@ def i14():
     return ok, f"pide segundo factor={pide}; sin ejecutar={sin_aprobar}; confirmación={pide_confirmar}; luego {estado(aprobada)}"
 
 
+def exportacion_real() -> bytes:
+    """Archivo que entrega O3.Ex al dueño, tal cual (certificado, estado y trazabilidad)."""
+    d = pa.Datos()
+    ctx = pa.certificado_de_finca(d)
+    r = como(ctx["propietarios"][0]).post(ruta("O3.Ex", ctx["certificado"]), {})
+    if r.status_code != 200:
+        raise AssertionError(f"exportación O3.Ex {estado(r)}")
+    return r.content
+
+
+def i15():
+    from django.core.files.uploadedfile import SimpleUploadedFile
+    from mediciones.views import AVISO_ENVOLTORIO
+
+    contenido = exportacion_real()
+    exportado = json.loads(contenido)
+    casos = {
+        "archivo": {"archivo": SimpleUploadedFile("exportado.json", contenido, "application/json")},
+        "pegado": {"certificado": contenido.decode("utf-8")},
+        "estado y trazabilidad cambiados": {"certificado": json.dumps({**exportado, "estado": "anulado", "trazabilidad": []})},
+        "clave de más": {"certificado": json.dumps({**exportado, "nota": "x"})},
+        "objeto interno": {"certificado": json.dumps(exportado["certificado"])},
+    }
+    obtenido = {}
+    for nombre, datos in casos.items():
+        r = cliente().post("/verificar/", datos)
+        encontrada = re.search(r'data-conclusion="([a-z_]+)"', texto(r))
+        obtenido[nombre] = (encontrada.group(1) if encontrada else estado(r), AVISO_ENVOLTORIO in texto(r))
+    esperado = {"archivo": ("integro_verdeazul", True), "pegado": ("integro_verdeazul", True),
+                "estado y trazabilidad cambiados": ("integro_verdeazul", True),
+                "clave de más": ("formato_invalido", False), "objeto interno": ("integro_verdeazul", False)}
+    return obtenido == esperado, "; ".join(f"{k} {c} aviso={a}" for k, (c, a) in obtenido.items())
+
+
+def i16():
+    """scripts/verificar_certificado.py como lo usaría un tercero, con el archivo exportado de verdad."""
+    import shutil
+    import subprocess
+    import tempfile
+
+    contenido = exportacion_real()
+    carpeta = Path(tempfile.mkdtemp(prefix="exportado_"))
+    script = str(RAIZ / "scripts" / "verificar_certificado.py")
+    huella = firma.huella_publica()
+
+    def correr(archivo: Path, *extra) -> tuple[int, list[str]]:
+        proceso = subprocess.run([sys.executable, "-I", script, str(archivo), *extra], capture_output=True,
+                                 text=True, timeout=60, cwd=carpeta)
+        return proceso.returncode, proceso.stdout.strip().splitlines()
+
+    try:
+        completo = carpeta / "exportado.json"
+        completo.write_bytes(contenido)
+        interno = carpeta / "certificado.json"
+        interno.write_text(json.dumps(json.loads(contenido)["certificado"]), encoding="utf-8")
+        extra = carpeta / "extra.json"
+        extra.write_text(json.dumps({**json.loads(contenido), "nota": "x"}), encoding="utf-8")
+        obtenido = {"exportado": correr(completo, "--huella", huella), "exportado sin huella": correr(completo),
+                    "clave de más": correr(extra, "--huella", huella), "objeto interno": correr(interno, "--huella", huella)}
+    finally:
+        shutil.rmtree(carpeta, ignore_errors=True)
+    aviso = "Se verifico el objeto certificado; estado y trazabilidad no estan firmados."
+    ok = (obtenido["exportado"] == (0, ["integro_emisor_esperado", aviso])
+          and obtenido["exportado sin huella"][0] == 4 and obtenido["exportado sin huella"][1][-1:] == [aviso]
+          and obtenido["clave de más"] == (3, ["formato_invalido"])
+          and obtenido["objeto interno"] == (0, ["integro_emisor_esperado"]))
+    return ok, "; ".join(f"{k} código {c} ({len(lineas)} líneas)" for k, (c, lineas) in obtenido.items())
+
+
 # --------------------------------------------------------------------------- B1: humo con servidor real
 
 
@@ -811,6 +880,9 @@ def pruebas() -> list[tuple[str, str, str, object]]:
         ("I12", "Bitácora caída: lectura de R7 denegada con página genérica", "503 genérico", i12),
         ("I13", "Aviso al titular solo una vez", "una vez", i13),
         ("I14", "Acción crítica sin segundo factor reciente: reautenticación y confirmación", "302; confirmar", i14),
+        ("I15", "Verificación pública del archivo exportado por O3.Ex: aviso solo con envoltorio",
+         "integro_verdeazul con aviso; formato_invalido", i15),
+        ("I16", "verificar_certificado.py con el archivo exportado y con el objeto interno", "códigos 0, 4, 3 y 0", i16),
         ("B1", "Humo con servidor HTTP real en loopback: acceso, concedida, denegada, verificación", "todo observado", b01),
     ]
     return lista

@@ -367,6 +367,29 @@ class VerificadorIndependienteTests(SimpleTestCase):
         self.assertEqual(codigo, 4)
         self.assertTrue(salida.startswith("integro_sin_huella"))
 
+    def test_archivo_exportado_completo(self):
+        exportado = json.dumps(_envoltorio(self.documento))
+        codigo, salida = self._correr(exportado, "--huella", self.huella)
+        self.assertEqual((codigo, salida.splitlines()), (0, ["integro_emisor_esperado", AVISO_SCRIPT]))
+        codigo, salida = self._correr(exportado)
+        self.assertEqual(codigo, 4)
+        self.assertEqual(salida.splitlines()[1:], [AVISO_SCRIPT])
+
+    def test_archivo_exportado_alterado_o_mal_formado(self):
+        alterado = _envoltorio(self.documento)
+        alterado["certificado"]["payload"]["co2e_toneladas"] = "100.001"
+        self.assertEqual(self._correr(json.dumps(alterado), "--huella", self.huella),
+                         (2, f"alterado\n{AVISO_SCRIPT}"))
+        extra = {**_envoltorio(self.documento), "nota": "x"}
+        self.assertEqual(self._correr(json.dumps(extra), "--huella", self.huella), (3, "formato_invalido"))
+        faltante = _envoltorio(self.documento)
+        del faltante["trazabilidad"]
+        self.assertEqual(self._correr(json.dumps(faltante), "--huella", self.huella), (3, "formato_invalido"))
+
+    def test_objeto_interno_sin_aviso(self):
+        self.assertEqual(self._correr(json.dumps(self.documento), "--huella", self.huella),
+                         (0, "integro_emisor_esperado"))
+
     def test_no_importa_nada_del_proyecto(self):
         import ast
 
@@ -376,3 +399,90 @@ class VerificadorIndependienteTests(SimpleTestCase):
         modulos |= {a.name.split(".")[0] for n in ast.walk(arbol) if isinstance(n, ast.Import) for a in n.names}
         propios = {"mediciones", "usuarios", "catalogo", "autorizacion", "interfaz", "config", "bitacora_svc", "django"}
         self.assertFalse(modulos & propios)
+
+
+AVISO_SCRIPT = "Se verifico el objeto certificado; estado y trazabilidad no estan firmados."
+
+
+def _envoltorio(documento: dict) -> dict:
+    """Misma forma que el archivo de la exportación O3.Ex (servicios.exportar_certificado)."""
+    return {
+        "certificado": json.loads(json.dumps(documento)),
+        "estado": "vigente",
+        "trazabilidad": [
+            {"etapa": "registro", "rol": "R1", "fecha": "2026-01-10T12:00:00Z", "resultado": "registrada",
+             "actor": "0" * 16},
+            {"etapa": "emision", "rol": "R2", "fecha": "2026-01-15T00:00:00Z", "resultado": "emitido",
+             "actor": "1" * 16},
+        ],
+    }
+
+
+class EnvoltorioTests(SimpleTestCase):
+    """firma.objeto_a_verificar: el archivo exportado completo se verifica por su objeto certificado."""
+
+    def setUp(self):
+        self.clave = Ed25519PrivateKey.generate()
+        self.huella = firma.huella_publica(self.clave)
+        payload = firma.construir_payload(
+            uuid.uuid4(), uuid.uuid4(), uuid.uuid4(), uuid.uuid4(), 1, Decimal("100"), "a" * 64,
+            [uuid.uuid4()], datetime(2026, 1, 15, tzinfo=timezone.utc), clave=self.clave,
+        )
+        self.documento = firma.firmar(payload, self.clave)
+
+    def _estado(self, documento, huella=None) -> str:
+        return firma.verificar(firma.objeto_a_verificar(documento), huella).estado
+
+    def test_envoltorio_valido_y_emisor_coincide(self):
+        envoltorio = _envoltorio(self.documento)
+        self.assertEqual(firma.objeto_a_verificar(envoltorio), self.documento)
+        self.assertEqual(self._estado(envoltorio, self.huella), firma.ESTADO_VALIDO)
+        otra = firma.huella_publica(Ed25519PrivateKey.generate())
+        self.assertEqual(self._estado(envoltorio, otra), firma.ESTADO_CLAVE_NO_CONFIABLE)
+
+    def test_envoltorio_con_claves_de_mas_o_de_menos(self):
+        extra = {**_envoltorio(self.documento), "nota": "x"}
+        faltante = _envoltorio(self.documento)
+        del faltante["estado"]
+        sin_dict = {**_envoltorio(self.documento), "certificado": "texto"}
+        for caso in (extra, faltante, sin_dict):
+            with self.subTest(claves=sorted(caso)):
+                self.assertIs(firma.objeto_a_verificar(caso), caso)
+                self.assertEqual(self._estado(caso, self.huella), firma.ESTADO_FORMATO_INVALIDO)
+
+    def test_certificado_interno_alterado(self):
+        envoltorio = _envoltorio(self.documento)
+        envoltorio["certificado"]["payload"]["co2e_toneladas"] = "100.001"
+        self.assertEqual(self._estado(envoltorio, self.huella), firma.ESTADO_FIRMA_INVALIDA)
+
+    def test_objeto_interno_igual_que_antes(self):
+        self.assertIs(firma.objeto_a_verificar(self.documento), self.documento)
+        self.assertEqual(self._estado(self.documento, self.huella), firma.ESTADO_VALIDO)
+        for otro in (None, [], "texto", {"payload": {}}):
+            self.assertIs(firma.objeto_a_verificar(otro), otro)
+
+    def test_estado_y_trazabilidad_no_cambian_el_resultado(self):
+        envoltorio = _envoltorio(self.documento)
+        envoltorio["estado"] = "anulado"
+        envoltorio["trazabilidad"] = [{"etapa": "inventada", "fecha": None}]
+        self.assertEqual(self._estado(envoltorio, self.huella), firma.ESTADO_VALIDO)
+        envoltorio["trazabilidad"] = "no es una lista"
+        envoltorio["estado"] = None
+        self.assertEqual(self._estado(envoltorio, self.huella), firma.ESTADO_VALIDO)
+
+    def test_el_script_desenvuelve_igual(self):
+        import importlib.util
+
+        ruta = VerificadorIndependienteTests.SCRIPT
+        especificacion = importlib.util.spec_from_file_location("verificar_certificado_paridad", ruta)
+        script = importlib.util.module_from_spec(especificacion)
+        especificacion.loader.exec_module(script)
+        self.assertEqual(set(script.CAMPOS_ENVOLTORIO), set(firma.CAMPOS_ENVOLTORIO))
+        envoltorio = _envoltorio(self.documento)
+        casos = [envoltorio, self.documento, {**envoltorio, "nota": 1}, {**envoltorio, "certificado": []},
+                 {"certificado": {}, "estado": None}, None, [], "texto"]
+        for caso in casos:
+            with self.subTest(caso=type(caso).__name__):
+                propio, ajeno = firma.objeto_a_verificar(caso), script.objeto_a_verificar(caso)
+                self.assertIs(propio, ajeno)
+                self.assertEqual(firma.verificar(propio, self.huella).estado, script.verificar(ajeno, self.huella))

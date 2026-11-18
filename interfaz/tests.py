@@ -345,6 +345,56 @@ class VerificacionTests(SimpleTestCase):
         propia = vistas_firma.evaluar(self._texto(self.propia), self.huella)
         self.assertEqual((propia["integridad"], propia["emisor"]), (True, True))
 
+    def _exportado(self, clave, **cambios) -> dict:
+        """Misma forma que el archivo de la exportación O3.Ex."""
+        return {"certificado": json.loads(self._texto(clave)), "estado": "vigente",
+                "trazabilidad": [{"etapa": "registro", "rol": "R1", "fecha": "2026-01-10T12:00:00Z",
+                                  "resultado": "registrada", "actor": "0" * 16}], **cambios}
+
+    def test_archivo_exportado_completo(self):
+        valido = vistas_firma.evaluar(json.dumps(self._exportado(self.propia)), self.huella)
+        self.assertEqual((valido["conclusion"], valido["integridad"], valido["emisor"], valido["envoltorio"]),
+                         (vistas_firma.INTEGRO_VERDEAZUL, True, True, True))
+        otra = vistas_firma.evaluar(json.dumps(self._exportado(self.otra)), self.huella)
+        self.assertEqual(otra["conclusion"], vistas_firma.INTEGRO_OTRA_CLAVE)
+        alterado = self._exportado(self.propia)
+        alterado["certificado"]["payload"]["co2e_toneladas"] = "100.001"
+        self.assertEqual(vistas_firma.evaluar(json.dumps(alterado), self.huella)["conclusion"], vistas_firma.ALTERADO)
+
+    def test_archivo_exportado_con_claves_de_mas_o_de_menos(self):
+        extra = self._exportado(self.propia, nota="x")
+        faltante = self._exportado(self.propia)
+        del faltante["trazabilidad"]
+        for caso in (extra, faltante):
+            r = vistas_firma.evaluar(json.dumps(caso), self.huella)
+            self.assertEqual((r["conclusion"], r["envoltorio"]), (vistas_firma.FORMATO_INVALIDO, False))
+
+    def test_estado_y_trazabilidad_no_cambian_el_resultado(self):
+        base = vistas_firma.evaluar(json.dumps(self._exportado(self.propia)), self.huella)
+        cambiado = vistas_firma.evaluar(json.dumps(self._exportado(
+            self.propia, estado="anulado", trazabilidad=[{"etapa": "inventada"}])), self.huella)
+        self.assertEqual(base, cambiado)
+
+    def test_objeto_interno_igual_que_antes(self):
+        r = vistas_firma.evaluar(self._texto(self.propia), self.huella)
+        self.assertEqual(r, {"conclusion": vistas_firma.INTEGRO_VERDEAZUL, "estado": firma.ESTADO_VALIDO,
+                             "integridad": True, "emisor": True, "envoltorio": False})
+
+    def test_la_linea_informativa_solo_con_envoltorio(self):
+        semilla = base64.b64encode(self.propia.private_bytes_raw()).decode()
+        firma.clave_privada.cache_clear()
+        try:
+            with mock.patch.dict(os.environ, {firma.VARIABLE_CLAVE: semilla}):
+                con = self.client.post("/verificar/", {"certificado": json.dumps(self._exportado(self.propia))})
+                sin = self.client.post("/verificar/", {"certificado": self._texto(self.propia)})
+        finally:
+            firma.clave_privada.cache_clear()
+        self.assertEqual((con.status_code, sin.status_code), (200, 200))
+        self.assertIn(vistas_firma.AVISO_ENVOLTORIO, con.content.decode())
+        self.assertIn(vistas_firma.CONCLUSIONES[vistas_firma.INTEGRO_VERDEAZUL], con.content.decode())
+        self.assertNotIn(vistas_firma.AVISO_ENVOLTORIO, sin.content.decode())
+        self.assertIn(vistas_firma.CONCLUSIONES[vistas_firma.INTEGRO_VERDEAZUL], sin.content.decode())
+
     def test_la_pagina_no_repite_el_texto_enviado(self):
         semilla = base64.b64encode(self.propia.private_bytes_raw()).decode()
         firma.clave_privada.cache_clear()

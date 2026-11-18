@@ -160,6 +160,8 @@ Códigos de salida de `verificar_certificado.py`:
 
 La huella se publica en `/clave-publica/`. El verificador solo usa la biblioteca estándar y `cryptography`.
 
+Tanto el verificador como la página `/verificar/` aceptan el certificado solo o el archivo completo que entrega la exportación (`certificado`, `estado` y `trazabilidad`). Con el archivo completo verifican solo el objeto `certificado` y lo indican en una línea aparte, porque `estado` y `trazabilidad` no están firmados.
+
 ## Cuentas de demostración
 
 ```powershell

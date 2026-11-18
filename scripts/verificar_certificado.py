@@ -14,6 +14,10 @@ Resultados y códigos de salida:
     2 alterado                 la firma no corresponde al contenido
     3 formato_invalido         documento ilegible o incompleto, o --huella mal formada
     4 integro_sin_huella       firma válida; sin --huella no se puede confirmar el emisor
+
+Acepta el certificado solo o el archivo completo de la exportación ({"certificado", "estado",
+"trazabilidad"}). En el segundo caso se verifica únicamente el objeto certificado, con los mismos
+códigos, y se imprime una segunda línea que lo indica: estado y trazabilidad no están firmados.
 """
 
 from __future__ import annotations
@@ -32,6 +36,8 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 LIMITE_BYTES = 65536
 ALG = "Ed25519"
 CAMPOS_DOCUMENTO = {"payload", "signature", "public_key", "alg"}
+CAMPOS_ENVOLTORIO = {"certificado", "estado", "trazabilidad"}
+AVISO_ENVOLTORIO = "Se verifico el objeto certificado; estado y trazabilidad no estan firmados."
 CAMPOS_PAYLOAD = {
     "certificado_id",
     "parcela_id",
@@ -95,6 +101,15 @@ def _payload_valido(payload) -> bool:
     )
 
 
+def objeto_a_verificar(documento):
+    """Idéntica a mediciones.firma.objeto_a_verificar: del archivo exportado devuelve su certificado;
+    cualquier otra forma vuelve sin cambios y verificar() decide."""
+    if (isinstance(documento, dict) and set(documento) == CAMPOS_ENVOLTORIO
+            and isinstance(documento["certificado"], dict)):
+        return documento["certificado"]
+    return documento
+
+
 def verificar(documento, huella_confiable: str | None) -> str:
     """Mismo orden que mediciones.firma.verificar: formato, firma y confianza."""
     if not isinstance(documento, dict) or set(documento) != CAMPOS_DOCUMENTO or documento["alg"] != ALG:
@@ -144,12 +159,15 @@ def main(argv: list[str] | None = None) -> int:
         print("formato_invalido: --huella debe tener 64 caracteres hexadecimales")
         return RESULTADOS["formato_invalido"][1]
     documento = leer_documento(args.archivo)
-    estado = "formato_invalido" if documento is None else verificar(documento, args.huella)
+    certificado = objeto_a_verificar(documento)
+    estado = "formato_invalido" if documento is None else verificar(certificado, args.huella)
     resultado, codigo = RESULTADOS[estado]
     if estado == "sin_confianza_establecida":
         print(f"{resultado}: integridad verificada; emisor no verificado (falta --huella)")
     else:
         print(resultado)
+    if certificado is not documento:
+        print(AVISO_ENVOLTORIO)
     return codigo
 
 

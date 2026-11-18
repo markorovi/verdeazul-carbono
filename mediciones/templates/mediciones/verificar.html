@@ -29,6 +29,9 @@
       <h2>Resultado</h2>
       <p role="status">Estado: {{ resultado.estado }}</p>
       <p class="conclusion" data-conclusion="{{ resultado.conclusion }}">{{ mensaje }}</p>
+      {% if aviso %}
+        <p class="aviso-envoltorio">{{ aviso }}</p>
+      {% endif %}
       <table>
         <tbody>
           <tr>

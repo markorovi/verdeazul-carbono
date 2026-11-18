@@ -49,6 +49,8 @@ CAMPOS_PAYLOAD = (
     "key_id",
 )
 CAMPOS_DOCUMENTO = ("payload", "signature", "public_key", "alg")
+# Archivo que entrega la exportación O3.Ex: el certificado firmado más datos que no están firmados.
+CAMPOS_ENVOLTORIO = ("certificado", "estado", "trazabilidad")
 
 ESTADO_VALIDO = "valido"
 ESTADO_FIRMA_INVALIDA = "firma_invalida"
@@ -202,6 +204,21 @@ def _problema_de_payload(payload) -> str | None:
     if not isinstance(payload["key_id"], str) or not _HEX16.match(payload["key_id"]):
         return "key_id no tiene 16 caracteres hexadecimales"
     return None
+
+
+def objeto_a_verificar(documento):
+    """Objeto que se verifica: el "certificado" del archivo exportado o, si no, el documento tal cual.
+
+    Solo se desenvuelve un diccionario con exactamente certificado, estado y trazabilidad, cuyo
+    certificado sea un diccionario; cualquier otra forma vuelve sin cambios y verificar() decide.
+    Estado y trazabilidad no están firmados y no intervienen en el resultado. Quien llama sabe que se
+    usó el envoltorio porque el objeto devuelto no es el documento recibido.
+    scripts/verificar_certificado.py repite esta función (no puede importar el proyecto).
+    """
+    if (isinstance(documento, dict) and set(documento) == set(CAMPOS_ENVOLTORIO)
+            and isinstance(documento["certificado"], dict)):
+        return documento["certificado"]
+    return documento
 
 
 def verificar(documento, huella_confiable: str | None) -> Resultado:

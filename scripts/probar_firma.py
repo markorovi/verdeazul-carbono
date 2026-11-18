@@ -184,6 +184,38 @@ def f09(app, mig):
     return resultado(iguales and coinciden, f"bytes idénticos={iguales}, mismo estado al verificar={coinciden}")
 
 
+def envoltorio(documento: dict, **cambios) -> dict:
+    """Misma forma que el archivo de la exportación O3.Ex."""
+    return {"certificado": copia(documento), "estado": "vigente",
+            "trazabilidad": [{"etapa": "registro", "rol": "R1", "fecha": "2026-01-10T12:00:00Z",
+                              "resultado": "registrada", "actor": "0" * 16}], **cambios}
+
+
+def f10(app, mig):
+    clave = Ed25519PrivateKey.generate()
+    documento = firma.firmar(payload_sintetico(clave), clave)
+    huella = firma.huella_publica(clave)
+    alterado = envoltorio(documento)
+    alterado["certificado"]["payload"]["co2e_toneladas"] = "999.000"
+    faltante = envoltorio(documento)
+    del faltante["estado"]
+    casos = {
+        "envoltorio": (envoltorio(documento), firma.ESTADO_VALIDO),
+        "estado y trazabilidad cambiados": (envoltorio(documento, estado="anulado", trazabilidad=[]), firma.ESTADO_VALIDO),
+        "interno alterado": (alterado, firma.ESTADO_FIRMA_INVALIDA),
+        "clave de más": (envoltorio(documento, nota="x"), firma.ESTADO_FORMATO_INVALIDO),
+        "clave de menos": (faltante, firma.ESTADO_FORMATO_INVALIDO),
+        "objeto interno": (documento, firma.ESTADO_VALIDO),
+    }
+    obtenidos = {}
+    for nombre, (caso, esperado) in casos.items():
+        propio = firma.verificar(firma.objeto_a_verificar(caso), huella).estado
+        externo = verify_cert.verificar(verify_cert.objeto_a_verificar(caso), huella)
+        obtenidos[nombre] = (propio == esperado == externo, propio)
+    ok = all(v for v, _ in obtenidos.values())
+    return resultado(ok, "; ".join(f"{k} {e}" for k, (_, e) in obtenidos.items()))
+
+
 # --------------------------------------------------------------------------- base de datos
 
 
@@ -350,6 +382,20 @@ def pruebas_rutas(app, mig) -> list[tuple[str, str, str, bool, str]]:
         detalle = cliente.get("/certificados/clave-publica/").content.decode() + cliente.get("/clave-publica/").content.decode()
     ok = codigos == [503, 503, 503] and firma.VARIABLE_CLAVE not in detalle
     filas.append(("W10", "Sin CERT_SIGNING_KEY las tres rutas responden 503 sin detalles", "503 x3", ok, f"HTTP {codigos}"))
+
+    from mediciones.views import AVISO_ENVOLTORIO
+
+    exportado = cliente.post("/verificar/", {"certificado": json.dumps(envoltorio(documento_real()))})
+    extra = cliente.post("/verificar/", {"certificado": json.dumps(envoltorio(documento_real(), nota="x"))})
+    solo = cliente.post("/verificar/", {"certificado": texto})
+    obtenido = {"exportado": (conclusion(exportado), AVISO_ENVOLTORIO in exportado.content.decode()),
+                "clave de más": (conclusion(extra), AVISO_ENVOLTORIO in extra.content.decode()),
+                "objeto interno": (conclusion(solo), AVISO_ENVOLTORIO in solo.content.decode())}
+    ok = obtenido == {"exportado": ("integro_verdeazul", True), "clave de más": ("formato_invalido", False),
+                      "objeto interno": ("integro_verdeazul", False)}
+    filas.append(("W11", "POST /verificar/ con el archivo exportado; aviso solo con envoltorio",
+                  "integro_verdeazul con aviso; formato_invalido; sin aviso", ok,
+                  "; ".join(f"{k} {c} aviso={a}" for k, (c, a) in obtenido.items())))
     return filas
 
 
@@ -393,6 +439,8 @@ PRUEBAS = [
     ("F07", "Sin huella confiable", firma.ESTADO_SIN_CONFIANZA, f07),
     ("F08", "CERT_SIGNING_KEY ausente, vacía, corta o no base64", "error claro sin el valor", f08),
     ("F09", "Canonicalización idéntica en firma.py y verificar_certificado.py", "bytes idénticos", f09),
+    ("F10", "Archivo exportado: se verifica el certificado; claves de más o de menos; mismo resultado en el script",
+     "valido; firma_invalida; formato_invalido", f10),
     ("B01", "Inserción con payload correcto", pm.PASA, b01),
     ("DISCREPANCIAS", "", "", pruebas_discrepancias),
     ("B15", "Cada discrepancia produce un mensaje distinto", "13 mensajes distintos", b15),
