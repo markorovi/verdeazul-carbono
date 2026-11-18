@@ -3,7 +3,7 @@
 #   docker build -f deploy/bitacora/Dockerfile -t <registro>/verdeazul/bitacora:vX.Y.Z .
 # Solo lleva el servicio y sus dependencias: nada del negocio (sin Django, ORM ni sesiones).
 # Misma imagen base que la aplicación: versión explícita, digest y la versión de Python de las pruebas.
-FROM python:3.13.7-slim-trixie@sha256:5f55cdf0c5d9dc1a415637a5ccc4a9e18663ad203673173b8cda8f8dcacef689
+FROM python:3.15.2-slim-trixie@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
