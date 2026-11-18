@@ -85,6 +85,8 @@ class Medicion(ModeloConUUID):
     ciclo = models.PositiveSmallIntegerField(default=1)
     devuelta_por = _usuario(null=True, blank=True)
     creada_en = models.DateTimeField(default=timezone.now)
+    # Verificador (R2) a cargo; solo un R7 lo cambia, con la medición presentada y el período cerrado.
+    verificador_asignado = _usuario(null=True, blank=True)
 
     class Meta:
         constraints = [

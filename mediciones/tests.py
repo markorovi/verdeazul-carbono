@@ -1,18 +1,20 @@
-"""Pruebas de la huella de versiones y de la firma de certificados que no necesitan base de datos."""
+"""Pruebas de huella, firma, plazos y errores de los servicios que no necesitan base de datos."""
 
 import base64
 import hashlib
 import json
 import os
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from unittest import mock
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from django.db import IntegrityError
 from django.test import SimpleTestCase
 
-from mediciones import firma
+from mediciones import firma, plazos, servicios
+from mediciones.errores import ParametroNoConfigurado, ReglaIncumplida
 from mediciones.huella import calcular_huella, formatear_co2e
 
 ENTRADA = {
@@ -154,3 +156,122 @@ class ClaveDeFirmaTests(SimpleTestCase):
                         firma.huella_publica()
                     if valor:
                         self.assertNotIn(valor, str(contexto.exception))
+
+class DiasHabilesTests(SimpleTestCase):
+    # 2026-11-16 es lunes.
+    def test_casos(self):
+        lunes = date(2026, 11, 16)
+        casos = {
+            lunes: 0,
+            date(2026, 11, 17): 1,
+            date(2026, 11, 20): 4,
+            date(2026, 11, 21): 4,
+            date(2026, 11, 22): 4,
+            date(2026, 11, 23): 5,
+            date(2026, 12, 7): 15,
+            date(2026, 12, 8): 16,
+        }
+        for hasta, esperado in casos.items():
+            with self.subTest(hasta=hasta):
+                self.assertEqual(plazos.dias_habiles_entre(lunes, hasta), esperado)
+
+    def test_desde_fin_de_semana_y_rango_invertido(self):
+        self.assertEqual(plazos.dias_habiles_entre(date(2026, 11, 21), date(2026, 11, 23)), 1)
+        self.assertEqual(plazos.dias_habiles_entre(date(2026, 11, 23), date(2026, 11, 16)), 0)
+
+    def test_coincide_con_conteo_dia_a_dia(self):
+        inicio = date(2026, 1, 1)
+        for largo in range(0, 40):
+            for desplazamiento in range(7):
+                desde = inicio + timedelta(days=desplazamiento)
+                hasta = desde + timedelta(days=largo)
+                esperado = sum(
+                    1 for d in range(1, largo + 1) if (desde + timedelta(days=d)).weekday() < 5
+                )
+                self.assertEqual(plazos.dias_habiles_entre(desde, hasta), esperado)
+
+    def test_plazo_habil_vencido(self):
+        cierre = datetime(2026, 11, 16, 18, 0, tzinfo=timezone.utc)
+        self.assertFalse(plazos.plazo_habil_vencido(cierre, datetime(2026, 12, 7, 23, 0, tzinfo=timezone.utc), 15))
+        self.assertTrue(plazos.plazo_habil_vencido(cierre, datetime(2026, 12, 8, 0, 1, tzinfo=timezone.utc), 15))
+
+
+class PlazoEnmiendaTests(SimpleTestCase):
+    cierre = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+
+    def test_dentro_y_fuera(self):
+        self.assertTrue(plazos.enmienda_en_plazo(self.cierre, self.cierre + timedelta(days=89), 90, False))
+        self.assertTrue(plazos.enmienda_en_plazo(self.cierre, self.cierre + timedelta(days=90), 90, False))
+        self.assertFalse(plazos.enmienda_en_plazo(self.cierre, self.cierre + timedelta(days=90, seconds=1), 90, False))
+
+    def test_certificado_anulado_sin_vigente(self):
+        self.assertTrue(plazos.enmienda_en_plazo(self.cierre, self.cierre + timedelta(days=120), 90, True))
+
+    def test_solicitud_fuera_de_plazo_con_vigente(self):
+        self.assertFalse(plazos.enmienda_en_plazo(self.cierre, self.cierre + timedelta(days=120), 90, False))
+
+
+class ParametrosTests(SimpleTestCase):
+    def _con_valor(self, valor):
+        consulta = mock.MagicMock()
+        consulta.filter.return_value.values_list.return_value.first.return_value = valor
+        return mock.patch.object(plazos.PoliticaParametro, "objects", consulta)
+
+    def test_lee_el_valor(self):
+        with self._con_valor(Decimal("500.000")):
+            self.assertEqual(plazos.leer_parametro(plazos.CLAVE_VALTO), Decimal("500"))
+
+    def test_falta_el_parametro(self):
+        with self._con_valor(None):
+            with self.assertRaises(ParametroNoConfigurado):
+                plazos.leer_parametro(plazos.CLAVE_PLAZO_VERIFICACION)
+
+    def test_entero(self):
+        with self._con_valor(Decimal("90.000")):
+            self.assertEqual(plazos.leer_parametro_entero(plazos.CLAVE_PLAZO_ENMIENDA), 90)
+        for valor in (Decimal("1.500"), Decimal("0"), Decimal("-3")):
+            with self.subTest(valor=valor), self._con_valor(valor):
+                with self.assertRaises(ParametroNoConfigurado):
+                    plazos.leer_parametro_entero(plazos.CLAVE_PLAZO_ENMIENDA)
+
+
+class _ErrorDeBase(Exception):
+    def __init__(self, sqlstate, mensaje="", restriccion=None):
+        super().__init__(mensaje)
+        self.sqlstate = sqlstate
+        self.diag = mock.Mock(message_primary=mensaje, constraint_name=restriccion)
+
+
+def _error_django(causa):
+    error = IntegrityError("rechazo")
+    error.__cause__ = causa
+    return error
+
+
+class ReglaDeLaBaseTests(SimpleTestCase):
+    def test_atributos(self):
+        regla = ReglaIncumplida("Cd7", "motivo")
+        self.assertEqual((regla.condicion, regla.motivo), ("Cd7", "motivo"))
+
+    def test_condicion_en_el_mensaje(self):
+        casos = {
+            "Aprobación rechazada (Cd8): quien registró...": "Cd8",
+            "Certificado rechazado (H1, Cd10): la medición debe estar aprobada.": "Cd10",
+        }
+        for mensaje, condicion in casos.items():
+            with self.subTest(condicion=condicion):
+                regla = servicios._regla_de_la_base(_error_django(_ErrorDeBase("23000", mensaje)))
+                self.assertEqual(regla.condicion, condicion)
+
+    def test_restricciones_unicas(self):
+        casos = {"certificado_vigente_unico": "Cd10", "aprobacion_unica_por_ciclo": "Cd8", "enmienda_una_solicitada": "Cd11"}
+        for restriccion, condicion in casos.items():
+            with self.subTest(restriccion=restriccion):
+                regla = servicios._regla_de_la_base(_error_django(_ErrorDeBase("23505", "", restriccion)))
+                self.assertEqual(regla.condicion, condicion)
+
+    def test_sin_condicion_conocida(self):
+        for causa in (_ErrorDeBase("23000", "Período rechazado: solo un actor R7."),
+                      _ErrorDeBase("23505", "", "otra_restriccion"), _ErrorDeBase("42501", "permiso"), None):
+            with self.subTest(causa=causa):
+                self.assertIsNone(servicios._regla_de_la_base(_error_django(causa)))

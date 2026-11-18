@@ -123,6 +123,81 @@ Importante:
 - Pruebas: `python scripts/probar_firma.py` con `. .\scripts\entorno_dev.ps1 -Pruebas`.
 - La clave de producción se crea y se rota fuera de Claude Code, solo por el dueño del proyecto.
 
+## Servicios de mediciones
+
+`mediciones/servicios.py` concentra las escrituras del dominio de mediciones (O1 a O4): funciones Python transaccionales, sin vistas ni plantillas.
+
+### Frontera entre servicios y autorización
+
+- Los servicios hacen cumplir, como defensa en profundidad, las condiciones que dependen del estado y del historial: Cd5, Cd6, Cd7, Cd8, Cd10, Cd11, Cd12, Cd19 y Cd20.
+- La capa de autorización decide **quién** puede invocar cada servicio: roles y vínculos (Cd1, Cd2, Cd22), ventana de auditoría (Cd3), segundo factor (Cd4), umbrales de lectura (Cd9), proyección (Cd16) y registro de lecturas (Cd17). Los servicios no lo repiten.
+- Los disparadores y la RLS de la base repiten las reglas críticas. Si la base rechaza algo con una condición conocida, el servicio lo convierte en `ReglaIncumplida`.
+
+### Servicios y condiciones
+
+| Servicio | Condiciones |
+| --- | --- |
+| `registrar_medicion` | Cd5: período abierto. Crea la medición en borrador y su versión 1. |
+| `modificar_medicion` | Cd6: medición propia y en borrador. Cd5: período abierto. Crea una versión nueva. |
+| `presentar_medicion` | Cd6 y Cd5, igual que modificar. Devuelve la huella presentada. |
+| `aprobar_medicion` | Cd10: sin certificado vigente. Cd7: período cerrado, medición presentada y `huella_revisada` igual a la vigente. Cd8: el actor no es autor ni quien devolvió, ni aprobó antes en el ciclo. Emite el certificado en la misma transacción al completar las aprobaciones (una, o dos si el volumen supera `valto_tco2e`). |
+| `devolver_medicion` | Cd7 y Cd8, igual que aprobar. |
+| `reasignar_verificacion` | Cd19: medición presentada, período cerrado, destino con R2 vigente, y verificador asignado impedido por Cd8 o plazo de verificación vencido. Cd8: el destino no puede ser autor. |
+| `abrir_periodo`, `cerrar_periodo` | Cd5: solo se cierra un período abierto. La base exige R7. |
+| `anular_certificado` | Cd20: certificado vigente, justificación de 10 caracteres o más y anulador que no aprobó la versión. Registra un aviso prioritario a la gerencia en la misma transacción; si el aviso falla, no hay anulación. |
+| `exportar_certificado` | Devuelve el documento firmado y la trazabilidad con seudónimos, en JSON canónico, y su SHA-256. |
+| `solicitar_enmienda` | Cd11: período cerrado; a lo sumo `tenm_dias` desde el cierre, o un certificado anulado sin otro vigente; el solicitante registró, aprobó o devolvió la medición; justificación. |
+| `resolver_enmienda` | Cd12: autorizador distinto del solicitante, del registrante y de todo aprobador. Para autorizar, el plazo se cuenta hasta la fecha de la solicitud. |
+
+### Uso
+
+Cada servicio recibe el actor (`Usuario`) como primer argumento. Abre su propia transacción y declara al actor con `como_actor`, así que quien llama no lo hace. Si algo falla, no queda ningún cambio.
+
+```python
+from mediciones import servicios
+from mediciones.errores import NoEncontrado, ReglaIncumplida
+
+try:
+    resultado = servicios.aprobar_medicion(actor, medicion_id, huella_revisada=huella)
+except ReglaIncumplida as error:
+    # error.condicion ("Cd7", "Cd8", ...) es estable; error.motivo es una frase sin datos sensibles.
+    ...
+except NoEncontrado:
+    # No existe o la RLS no la deja ver: no se distingue un caso del otro.
+    ...
+```
+
+- Decida por `error.condicion`, no por el texto de `error.motivo`.
+- `ParametroNoConfigurado` indica que falta un parámetro de política. El servicio falla cerrado y no usa valores por defecto.
+- Cualquier otro error de base, por ejemplo un permiso de RLS, se propaga tal cual.
+- Los servicios devuelven dataclasses simples. Nunca devuelven querysets ni datos de otras personas.
+
+### Plazos y parámetros
+
+Se leen de `PoliticaParametro`; nunca se escriben en el código.
+
+| Clave | Uso | Estado |
+| --- | --- | --- |
+| `valto_tco2e` | Volumen alto | Sembrada |
+| `tenm_dias` | Plazo de enmienda | Sembrada |
+| `tver_dias_habiles` | Plazo de verificación (Cd19) | Falta |
+
+Mientras falte `tver_dias_habiles`, la reasignación por plazo falla cerrada. Las demás causas de reasignación siguen disponibles.
+
+- Los días hábiles van de lunes a viernes, sobre fechas UTC y sin feriados.
+- La hora de los plazos sale de `now()` de la base (`servicios._ahora`). La fecha de emisión del certificado también usa `now()`, pero no depende de esa función.
+
+### Pruebas
+
+Con el entorno de pruebas cargado:
+
+```powershell
+. .\scripts\entorno_dev.ps1 -Pruebas
+python scripts/probar_servicios.py
+```
+
+Corre como `app_rw`. Las dos pruebas que necesitan un cierre en el pasado corren como `migrador`, dentro de la transacción revertida. Termina comparando los conteos con los iniciales.
+
 ## Producción
 
 - El corte y las migraciones de producción los hace **solo el dueño del proyecto**, con `scripts/entorno_prod.ps1` (modos `-Migrador` y `-App`) y `scripts/reporte_bd.py`. `entorno_prod.ps1` y `configurar_bd.py --entorno prod` exigen escribir `PRODUCCION`.
