@@ -3,7 +3,14 @@
 {% block titulo %}Mi cuenta - Verdeazul Carbono{% endblock %}
 
 {% block contenido %}
-  <h1>Mi cuenta</h1>
+  <div class="page-heading">
+    <div>
+      <div class="eyebrow">Espacio de trabajo</div>
+      <h1>Mi cuenta</h1>
+      <p class="lead">Su acceso y responsabilidades en Verdeazul Carbono.</p>
+    </div>
+    <a class="button button-primary" href="{% url 'consola' %}">Ir a operaciones <span aria-hidden="true">→</span></a>
+  </div>
   {% if avisos %}
     <section role="alert" class="avisos-titular">
       <h2>Cambios en su cuenta desde su último acceso</h2>
@@ -13,16 +20,30 @@
       <p>Si no los reconoce, avise a la administración.</p>
     </section>
   {% endif %}
-  <p>Correo: {{ user.correo }}</p>
-  <h2>Roles vigentes</h2>
-  {% if roles %}
-    <ul>
-      {% for codigo, nombre in roles %}
-        <li>{{ codigo }} {{ nombre }}</li>
-      {% endfor %}
-    </ul>
-  {% else %}
-    <p>No tiene roles vigentes.</p>
-  {% endif %}
-  <p><a href="{% url 'consola' %}">Ir a las operaciones</a></p>
+  <section class="account-grid" aria-label="Resumen de cuenta">
+    <article class="panel profile-panel">
+      <div class="panel-icon" aria-hidden="true">{{ user.nombre|first|upper }}</div>
+      <div class="eyebrow">Cuenta activa</div>
+      <h2>{{ user.nombre }}</h2>
+      <p class="muted">{{ user.correo }}</p>
+      <div class="divider"></div>
+      <h3>Roles vigentes</h3>
+      {% if roles %}
+        <ul class="role-list">
+          {% for codigo, nombre in roles %}
+            <li><span class="role-code">{{ codigo }}</span><span>{{ nombre }}</span></li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="muted">No tiene roles vigentes asignados.</p>
+      {% endif %}
+    </article>
+    <article class="panel feature-panel">
+      <div class="feature-kicker">Herramienta pública</div>
+      <h2>Verificación de certificados</h2>
+      <p class="muted">Compruebe la integridad de un certificado y que fue firmado por Verdeazul.</p>
+      <a class="text-link" href="{% url 'verificar' %}">Ir a verificar <span aria-hidden="true">→</span></a>
+      <div class="feature-art" aria-hidden="true"><span>✓</span></div>
+    </article>
+  </section>
 {% endblock %}

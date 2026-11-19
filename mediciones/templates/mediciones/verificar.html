@@ -1,38 +1,47 @@
 {% extends "interfaz/base.html" %}
 
 {% block titulo %}Verificar certificado - Verdeazul Carbono{% endblock %}
+{% block main_class %}main-narrow{% endblock %}
 
 {% block contenido %}
-  <h1>Verificar certificado</h1>
+  <div class="page-heading verify-heading">
+    <div>
+      <div class="eyebrow">Confianza verificable</div>
+      <h1>Verificar certificado</h1>
+      <p class="lead">Compruebe la integridad y el origen de un certificado emitido por el sistema.</p>
+    </div>
+    <div class="verify-seal" aria-hidden="true">✓</div>
+  </div>
   {% if no_disponible %}
-    <p role="alert">La verificación no está disponible en este momento.</p>
+    <p class="alert" role="alert">La verificación no está disponible en este momento.</p>
   {% else %}
-    <p>Pegue el certificado en formato JSON o adjunte el archivo (hasta {{ limite }} bytes). Se comprueba por
-       separado la integridad (firma Ed25519 con la clave incluida en el documento) y el emisor (que esa clave
-       sea la <a href="{% url 'clave_publica_pagina' %}">clave pública de Verdeazul</a>).</p>
-    <form method="post" action="{% url 'verificar' %}" enctype="multipart/form-data">
-      {% csrf_token %}
-      <p>
-        <label for="certificado">Certificado (JSON)</label><br>
-        <textarea id="certificado" name="certificado" rows="12" cols="80"></textarea>
-      </p>
-      <p>
-        <label for="archivo">O adjunte el archivo</label><br>
-        <input type="file" id="archivo" name="archivo" accept="application/json,.json">
-      </p>
-      <p><button type="submit">Verificar</button></p>
-    </form>
+    <section class="panel verifier-panel">
+      <p class="muted">Pegue el JSON o adjunte el archivo exportado (hasta {{ limite }} bytes). Se comprueban por separado la integridad Ed25519 y el emisor frente a la <a href="{% url 'clave_publica_pagina' %}">clave pública de Verdeazul</a>.</p>
+      <form method="post" action="{% url 'verificar' %}" enctype="multipart/form-data">
+        {% csrf_token %}
+        <div class="form-field">
+          <label for="certificado">Documento del certificado <span class="label-hint">JSON</span></label>
+          <textarea id="certificado" name="certificado" rows="12" spellcheck="false"></textarea>
+        </div>
+        <div class="form-field">
+          <label for="archivo">O adjunte el archivo</label>
+          <input type="file" id="archivo" name="archivo" accept="application/json,.json">
+        </div>
+        <button class="button button-primary" type="submit">Verificar certificado <span aria-hidden="true">→</span></button>
+      </form>
+    </section>
     {% if demasiado_grande %}
-      <p role="alert">El certificado supera el tamaño permitido.</p>
+      <p class="alert" role="alert">El certificado supera el tamaño permitido.</p>
     {% endif %}
     {% if resultado %}
-      <h2>Resultado</h2>
-      <p role="status">Estado: {{ resultado.estado }}</p>
-      <p class="conclusion" data-conclusion="{{ resultado.conclusion }}">{{ mensaje }}</p>
+      <section class="result-card" aria-live="polite" data-conclusion="{{ resultado.conclusion }}">
+        <div class="eyebrow">Resultado de la comprobación</div>
+        <h2>{{ resultado.estado }}</h2>
+        <p class="conclusion">{{ mensaje }}</p>
       {% if aviso %}
-        <p class="aviso-envoltorio">{{ aviso }}</p>
+        <p class="aviso aviso-envoltorio">{{ aviso }}</p>
       {% endif %}
-      <table>
+      <div class="table-scroll"><table>
         <tbody>
           <tr>
             <th>1. Integridad (firma con la clave incluida)</th>
@@ -43,7 +52,8 @@
             <td>{% if resultado.emisor is None %}no evaluable{% elif resultado.emisor %}coincide{% else %}no coincide{% endif %}</td>
           </tr>
         </tbody>
-      </table>
+      </table></div>
+      </section>
     {% endif %}
   {% endif %}
 {% endblock %}

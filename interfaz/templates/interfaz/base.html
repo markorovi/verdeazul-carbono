@@ -1,4 +1,5 @@
-{% load static %}<!doctype html>
+{% load static %}
+<!doctype html>
 <html lang="es">
 <head>
   <meta charset="utf-8">
@@ -7,22 +8,33 @@
   <link rel="stylesheet" href="{% static 'interfaz/estilo.css' %}">
 </head>
 <body>
-  <header>
-    <p class="marca">Verdeazul Carbono</p>
-    {% if user.is_authenticated %}
-      <nav>
-        <a href="{% url 'consola' %}">Operaciones</a>
-        <a href="{% url 'cuenta' %}">Mi cuenta</a>
-        <a href="{% url 'verificar' %}">Verificar certificado</a>
+  <header class="site-header">
+    <a class="brand" href="{% if user.is_authenticated %}{% url 'consola' %}{% else %}{% url 'acceso' %}{% endif %}" aria-label="Verdeazul Carbono, inicio">
+      <span class="brand-mark" aria-hidden="true">V</span>
+      <span class="brand-name">Verdeazul <strong>Carbono</strong></span>
+    </a>
+    <nav class="site-nav" aria-label="Navegación principal">
+      {% if user.is_authenticated %}
+        <a href="{% url 'consola' %}" {% if request.resolver_match.url_name == 'consola' %}aria-current="page"{% endif %}>Operaciones</a>
+        <a href="{% url 'cuenta' %}" {% if request.resolver_match.url_name == 'cuenta' %}aria-current="page"{% endif %}>Mi cuenta</a>
+      {% else %}
+        <a href="{% url 'acceso' %}" {% if request.resolver_match.url_name == 'acceso' or request.resolver_match.url_name == 'segundo_factor' %}aria-current="page"{% endif %}>Acceso</a>
+      {% endif %}
+      <a href="{% url 'verificar' %}" {% if request.resolver_match.url_name == 'verificar' %}aria-current="page"{% endif %}>Verificar certificado</a>
+      {% if user.is_authenticated %}
         <form method="post" action="{% url 'salida' %}" class="en-linea">
           {% csrf_token %}
-          <button type="submit">Cerrar sesión</button>
+          <button class="button button-secondary button-small" type="submit">Cerrar sesión</button>
         </form>
-      </nav>
-    {% endif %}
+      {% endif %}
+    </nav>
   </header>
-  <main>
+  <main class="site-main {% block main_class %}{% endblock %}">
     {% block contenido %}{% endblock %}
   </main>
+  <footer class="site-footer">
+    <span>Verdeazul Carbono</span>
+    <span>Registro y verificación de mediciones</span>
+  </footer>
 </body>
 </html>

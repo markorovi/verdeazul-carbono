@@ -1,13 +1,15 @@
 {% extends "interfaz/base.html" %}
 
 {% block titulo %}Activar o recuperar cuenta - Verdeazul Carbono{% endblock %}
+{% block main_class %}main-centered{% endblock %}
 
 {% block contenido %}
-  <h1>Activar o recuperar cuenta</h1>
-  <p>Use el código de un solo uso que le entregó la administración. Para recuperar una cuenta existente
-     se pide además el código de su aplicación autenticadora.</p>
+  <section class="auth-card auth-card-wide">
+    <div class="eyebrow">Acceso a la cuenta</div>
+    <h1>Activar o recuperar cuenta</h1>
+    <p class="lead">Use el código de un solo uso entregado por la administración. Para recuperar una cuenta existente también se solicita su código autenticador.</p>
   {% if error %}
-    <p role="alert">{{ error }}</p>
+    <p class="alert" role="alert">{{ error }}</p>
   {% endif %}
   <form method="post" action="{% url 'recuperar' %}">
     {% csrf_token %}
@@ -15,12 +17,14 @@
       <ul class="errores">{% for e in form.non_field_errors %}<li>{{ e }}</li>{% endfor %}</ul>
     {% endif %}
     {% for campo in form %}
-      <p>
-        <label for="{{ campo.id_for_label }}">{{ campo.label }}</label><br>
+      <div class="form-field">
+        <label for="{{ campo.id_for_label }}">{{ campo.label }}</label>
         {{ campo }}
-      </p>
+        {% for error in campo.errors %}<span class="error">{{ error }}</span>{% endfor %}
+      </div>
     {% endfor %}
-    <p><button type="submit">Continuar</button></p>
+    <button class="button button-primary button-wide" type="submit">Continuar <span aria-hidden="true">→</span></button>
   </form>
-  <p><a href="{% url 'acceso' %}">Volver a iniciar sesión</a></p>
+    <p class="form-note"><a href="{% url 'acceso' %}">Volver a iniciar sesión</a></p>
+  </section>
 {% endblock %}

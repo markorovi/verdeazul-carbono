@@ -1,21 +1,24 @@
 {% extends "interfaz/base.html" %}
 
 {% block titulo %}Confirmar identidad - Verdeazul Carbono{% endblock %}
+{% block main_class %}main-centered{% endblock %}
 
 {% block contenido %}
-  <h1>Confirmar identidad</h1>
-  <p>La operación exige un segundo factor reciente. Escriba el código de su aplicación autenticadora.
-     Después podrá revisar la operación y confirmarla; no se ejecuta sola.</p>
+  <section class="auth-card">
+    <div class="eyebrow"><span class="status-dot"></span> Confirmación adicional</div>
+    <h1>Confirme su identidad</h1>
+    <p class="lead">Esta operación requiere un segundo factor reciente. Después podrá revisar los datos y confirmarla.</p>
   {% if error %}
-    <p role="alert">{{ error }}</p>
+    <p class="alert" role="alert">{{ error }}</p>
   {% endif %}
   <form method="post" action="{% url 'reautenticar' %}">
     {% csrf_token %}
     <input type="hidden" name="next" value="{{ siguiente }}">
-    <p>
-      <label for="{{ form.codigo.id_for_label }}">{{ form.codigo.label }}</label><br>
+    <div class="form-field">
+      <label for="{{ form.codigo.id_for_label }}">{{ form.codigo.label }}</label>
       {{ form.codigo }}
-    </p>
-    <p><button type="submit">Confirmar</button></p>
+    </div>
+    <button class="button button-primary button-wide" type="submit">Confirmar identidad <span aria-hidden="true">→</span></button>
   </form>
+  </section>
 {% endblock %}

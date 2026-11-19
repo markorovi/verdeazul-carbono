@@ -1,19 +1,21 @@
 {% extends "interfaz/base.html" %}
 
 {% block titulo %}Clave pública - Verdeazul Carbono{% endblock %}
+{% block main_class %}main-narrow{% endblock %}
 
 {% block contenido %}
+  <div class="eyebrow">Confianza verificable</div>
   <h1>Clave pública de firma</h1>
   {% if no_disponible %}
-    <p role="alert">La clave pública no está disponible en este momento.</p>
+    <p class="alert" role="alert">La clave pública no está disponible en este momento.</p>
   {% else %}
-    <dl class="ficha">
+    <dl class="ficha panel key-panel">
       <dt>Algoritmo</dt><dd>{{ datos.alg }}</dd>
       <dt>Clave pública (base64, 32 bytes)</dt><dd><code>{{ datos.public_key }}</code></dd>
       <dt>Huella SHA-256 de la clave</dt><dd><code>{{ datos.huella_sha256 }}</code></dd>
       <dt>Identificador de clave</dt><dd><code>{{ datos.key_id }}</code></dd>
     </dl>
-    <p>Un certificado es de Verdeazul si su firma es válida y su clave tiene esta huella.
+    <p class="lead">Un certificado es de Verdeazul si su firma es válida y su clave tiene esta huella.
        <a href="{% url 'verificar' %}">Verificar un certificado</a>.</p>
   {% endif %}
 {% endblock %}

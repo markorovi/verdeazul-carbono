@@ -3,14 +3,25 @@
 {% block titulo %}Operaciones - Verdeazul Carbono{% endblock %}
 
 {% block contenido %}
-  <h1>Operaciones</h1>
-  <p>Roles vigentes: {% for rol in roles %}{{ rol }}{% if not forloop.last %}, {% endif %}{% empty %}ninguno{% endfor %}</p>
-  <p class="nota">La lista solo orienta: cada operación la decide el servidor al ejecutarla.</p>
+  <div class="page-heading">
+    <div>
+      <div class="eyebrow">Panel de trabajo</div>
+      <h1>Operaciones</h1>
+      <p class="lead">Acceda a las lecturas y tareas disponibles para su cuenta.</p>
+    </div>
+    <div class="role-summary"><span class="muted">Roles vigentes</span><strong>{% for rol in roles %}{{ rol }}{% if not forloop.last %}, {% endif %}{% empty %}Ninguno{% endfor %}</strong></div>
+  </div>
+  <p class="nota"><span class="status-dot"></span>El servidor comprueba los permisos al abrir cada operación.</p>
 
-  <h2>Sus operaciones</h2>
-  {% include "interfaz/tabla_operaciones.html" with filas=propias %}
+  <section class="console-section">
+    <div class="section-heading"><div class="eyebrow">Acceso recomendado</div><h2>Sus operaciones</h2></div>
+    {% include "interfaz/tabla_operaciones.html" with filas=propias %}
+  </section>
 
-  <h2>Probar otras operaciones</h2>
-  <p class="nota">Las 41 operaciones de la matriz. Las que no le corresponden terminan en 403 con la regla aplicada.</p>
-  {% include "interfaz/tabla_operaciones.html" with filas=otras %}
+  <details class="all-operations">
+    <summary><span><strong>Explorar toda la matriz</strong><small>El acceso a cada operación se evalúa individualmente.</small></span><span aria-hidden="true">＋</span></summary>
+    <div class="all-operations-content">
+      {% include "interfaz/tabla_operaciones.html" with filas=otras %}
+    </div>
+  </details>
 {% endblock %}

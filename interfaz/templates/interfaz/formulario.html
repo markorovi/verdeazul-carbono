@@ -3,10 +3,11 @@
 {% block titulo %}{{ entrada.etiqueta }} - Verdeazul Carbono{% endblock %}
 
 {% block contenido %}
+  <div class="eyebrow">Operación {{ entrada.codigo }}</div>
   <h1>{{ entrada.etiqueta }}</h1>
-  <p>Operación {{ entrada.codigo }}{% if objeto_id %} sobre {{ entrada.objeto }} {{ objeto_id }}{% endif %}</p>
+  {% if objeto_id %}<p class="nota">Sobre {{ entrada.objeto }} <code>{{ objeto_id }}</code></p>{% endif %}
   {% if confirmar %}
-    <p role="status" class="aviso">Segundo factor confirmado. Revise los datos y confirme la operación.</p>
+    <p role="status" class="aviso reauth-notice">Segundo factor confirmado. Revise los datos y confirme la operación.</p>
   {% endif %}
   {% if ficha %}
     <h2>Medición a revisar</h2>
@@ -19,13 +20,14 @@
     {% endif %}
     {% for campo in form.hidden_fields %}{{ campo }}{% endfor %}
     {% for campo in form.visible_fields %}
-      <p>
-        <label for="{{ campo.id_for_label }}">{{ campo.label }}</label><br>
+      <div class="form-field">
+        <label for="{{ campo.id_for_label }}">{{ campo.label }}</label>
         {{ campo }}
         {% for error in campo.errors %}<span class="error">{{ error }}</span>{% endfor %}
-      </p>
+        {% if campo.help_text %}<small class="help-text">{{ campo.help_text }}</small>{% endif %}
+      </div>
     {% endfor %}
-    <p><button type="submit">{% if confirmar %}Confirmar{% else %}Ejecutar{% endif %}</button></p>
+    <button class="button button-primary" type="submit">{% if confirmar %}Confirmar operación{% else %}Ejecutar operación{% endif %} <span aria-hidden="true">→</span></button>
   </form>
-  <p><a href="{% url 'consola' %}">Volver a las operaciones</a></p>
+  <p class="back-link"><a href="{% url 'consola' %}">← Volver a las operaciones</a></p>
 {% endblock %}

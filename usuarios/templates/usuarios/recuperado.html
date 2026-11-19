@@ -1,15 +1,26 @@
 {% extends "interfaz/base.html" %}
 
 {% block titulo %}Cuenta lista - Verdeazul Carbono{% endblock %}
+{% block main_class %}main-centered{% endblock %}
 
 {% block contenido %}
-  <h1>Cuenta lista</h1>
+  <section class="auth-card auth-card-wide">
+    <div class="eyebrow">Cuenta actualizada</div>
+    <h1>Cuenta lista</h1>
   {% if alta %}
-    <p>Registre este secreto en su aplicación autenticadora. Se muestra solo esta vez.</p>
-    <p>Secreto: <code>{{ secreto }}</code></p>
-    <p>Enlace de aprovisionamiento: <code>{{ uri }}</code></p>
+    <p class="lead">Registre el secreto en su aplicación autenticadora. Esta información se muestra una sola vez.</p>
+    <div class="one-time-secret">
+      <strong>Secreto TOTP</strong>
+      <code>{{ secreto }}</code>
+    </div>
+    <div class="one-time-secret">
+      <strong>URI de aprovisionamiento</strong>
+      <code>{{ uri }}</code>
+    </div>
+    <p class="form-note">Guarde el secreto en su aplicación autenticadora y no lo comparta.</p>
   {% else %}
-    <p>La contraseña se actualizó y se cerraron las sesiones abiertas de la cuenta.</p>
+    <p class="lead">La contraseña se actualizó y se cerraron las sesiones abiertas de la cuenta.</p>
   {% endif %}
-  <p><a href="{% url 'acceso' %}">Iniciar sesión</a></p>
+    <p class="form-note"><a class="text-link" href="{% url 'acceso' %}">Iniciar sesión <span aria-hidden="true">→</span></a></p>
+  </section>
 {% endblock %}

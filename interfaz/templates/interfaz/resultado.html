@@ -3,13 +3,14 @@
 {% block titulo %}{{ entrada.etiqueta }} - Verdeazul Carbono{% endblock %}
 
 {% block contenido %}
+  <div class="eyebrow">Operación {{ entrada.codigo }} completada</div>
   <h1>{{ entrada.etiqueta }}</h1>
-  <p role="status">Operación {{ entrada.codigo }} completada.</p>
-  <dl>
+  <section class="result-card" role="status"><p>La operación se completó correctamente.</p></section>
+  <dl class="ficha panel detail-panel">
     {% for nombre, valor in campos %}
       <dt>{{ nombre }}</dt><dd>{{ valor }}</dd>
     {% endfor %}
   </dl>
   <p class="nota">Los códigos de un solo uso se muestran solo esta vez; entréguelos por un canal seguro.</p>
-  <p><a href="{% url 'consola' %}">Volver a las operaciones</a></p>
+  <p class="back-link"><a href="{% url 'consola' %}">← Volver a las operaciones</a></p>
 {% endblock %}
