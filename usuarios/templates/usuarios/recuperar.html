@@ -1,10 +1,10 @@
-{% extends "interfaz/base.html" %}
+{% extends "usuarios/base_acceso.html" %}
 
 {% block titulo %}Activar o recuperar cuenta - Verdeazul Carbono{% endblock %}
 
-{% block contenido %}
+{% block tarjeta %}
   <h1>Activar o recuperar cuenta</h1>
-  <p>Use el código de un solo uso que le entregó la administración. Para recuperar una cuenta existente
+  <p class="acceso-sub">Use el código de un solo uso que le entregó la administración. Para recuperar una cuenta existente
      se pide además el código de su aplicación autenticadora.</p>
   {% if error %}
     <p role="alert">{{ error }}</p>
@@ -15,12 +15,19 @@
       <ul class="errores">{% for e in form.non_field_errors %}<li>{{ e }}</li>{% endfor %}</ul>
     {% endif %}
     {% for campo in form %}
-      <p>
-        <label for="{{ campo.id_for_label }}">{{ campo.label }}</label><br>
+      <div class="campo">
+        <label for="{{ campo.id_for_label }}">{{ campo.label }}</label>
         {{ campo }}
-      </p>
+        {% if campo.name == "contrasena" %}
+          <p class="ayuda">Al menos 12 caracteres. Puede usar una frase con espacios.</p>
+        {% elif campo.name == "codigo_totp" %}
+          <p class="ayuda">Solo al recuperar una cuenta existente.</p>
+        {% endif %}
+      </div>
     {% endfor %}
-    <p><button type="submit">Continuar</button></p>
+    <button type="submit" class="boton">Continuar</button>
   </form>
-  <p><a href="{% url 'acceso' %}">Volver a iniciar sesión</a></p>
+  <div class="acceso-enlaces">
+    <a href="{% url 'acceso' %}">Volver a iniciar sesión</a>
+  </div>
 {% endblock %}

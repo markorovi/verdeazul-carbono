@@ -1,9 +1,16 @@
-{% extends "interfaz/base.html" %}
+{% extends "interfaz/base_app.html" %}
 
 {% block titulo %}Mi cuenta - Verdeazul Carbono{% endblock %}
 
 {% block contenido %}
-  <h1>Mi cuenta</h1>
+  <div class="encabezado-pagina">
+    <div>
+      <p class="sobretitulo">Espacio de trabajo</p>
+      <h1>Mi cuenta</h1>
+      <p class="lead">Su acceso y responsabilidades en Verdeazul Carbono.</p>
+    </div>
+    <a class="boton" href="{% url 'consola' %}">Ir a las operaciones</a>
+  </div>
   {% if avisos %}
     <section role="alert" class="avisos-titular">
       <h2>Cambios en su cuenta desde su último acceso</h2>
@@ -13,16 +20,30 @@
       <p>Si no los reconoce, avise a la administración.</p>
     </section>
   {% endif %}
-  <p>Correo: {{ user.correo }}</p>
-  <h2>Roles vigentes</h2>
-  {% if roles %}
-    <ul>
-      {% for codigo, nombre in roles %}
-        <li>{{ codigo }} {{ nombre }}</li>
-      {% endfor %}
-    </ul>
-  {% else %}
-    <p>No tiene roles vigentes.</p>
-  {% endif %}
-  <p><a href="{% url 'consola' %}">Ir a las operaciones</a></p>
+  <div class="cuenta-grid">
+    <section class="panel" aria-label="Resumen de la cuenta">
+      <span class="perfil-inicial" aria-hidden="true">{{ user.nombre|slice:":1"|upper }}</span>
+      <p class="sobretitulo">Cuenta activa</p>
+      <h2 class="perfil-nombre">{{ user.nombre }}</h2>
+      <p class="perfil-correo">{{ user.correo }}</p>
+      <hr class="separador">
+      <h3>Roles vigentes</h3>
+      {% if roles %}
+        <ul class="roles">
+          {% for codigo, nombre in roles %}
+            <li><span class="rol-codigo">{{ codigo }}</span> {{ nombre }}</li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p>No tiene roles vigentes.</p>
+      {% endif %}
+    </section>
+    <section class="panel cuenta-verificar">
+      <p class="sobretitulo">Herramienta pública</p>
+      <h2>Verificación de certificados</h2>
+      <p>Compruebe la integridad de un certificado y que fue firmado por Verdeazul.</p>
+      <p><a href="{% url 'verificar' %}">Ir a verificar</a></p>
+      <span class="cuenta-sello" aria-hidden="true">{% include "interfaz/iconos/check.html" %}</span>
+    </section>
+  </div>
 {% endblock %}

@@ -1,15 +1,17 @@
-{% extends "interfaz/base.html" %}
+{% extends "interfaz/base_app.html" %}
 
 {% block titulo %}{{ entrada.etiqueta }} - Verdeazul Carbono{% endblock %}
 
 {% block contenido %}
   <h1>{{ entrada.etiqueta }}</h1>
-  <p role="status">Operación {{ entrada.codigo }} completada.</p>
-  <dl>
-    {% for nombre, valor in campos %}
-      <dt>{{ nombre }}</dt><dd>{{ valor }}</dd>
-    {% endfor %}
-  </dl>
+  <p role="status" class="exito">Operación {{ entrada.codigo }} completada.</p>
+  <section class="panel">
+    <dl class="ficha">
+      {% for nombre, valor in campos %}
+        <dt>{{ nombre }}</dt><dd>{{ valor }}</dd>
+      {% endfor %}
+    </dl>
+  </section>
   <p class="nota">Los códigos de un solo uso se muestran solo esta vez; entréguelos por un canal seguro.</p>
   <p><a href="{% url 'consola' %}">Volver a las operaciones</a></p>
 {% endblock %}

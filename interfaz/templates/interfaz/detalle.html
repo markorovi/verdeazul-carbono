@@ -1,17 +1,21 @@
-{% extends "interfaz/base.html" %}
+{% extends "interfaz/base_app.html" %}
 
 {% block titulo %}{{ titulo }} - Verdeazul Carbono{% endblock %}
 
 {% block contenido %}
   <h1>{{ titulo }}</h1>
-  {% include "interfaz/ficha.html" with ficha=ficha %}
+  <section class="panel">
+    {% include "interfaz/ficha.html" with ficha=ficha %}
+  </section>
   {% if acciones %}
-    <h2>Operaciones sobre este objeto</h2>
-    <ul>
-      {% for etiqueta, ruta in acciones %}
-        <li><a href="{{ ruta }}">{{ etiqueta }}</a></li>
-      {% endfor %}
-    </ul>
+    <section class="panel">
+      <h2>Operaciones sobre este objeto</h2>
+      <ul class="acciones">
+        {% for etiqueta, ruta in acciones %}
+          <li><a class="boton-chico" href="{{ ruta }}">{{ etiqueta }}</a></li>
+        {% endfor %}
+      </ul>
+    </section>
   {% endif %}
   <p><a href="{% url 'consola' %}">Volver a las operaciones</a></p>
 {% endblock %}

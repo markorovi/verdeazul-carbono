@@ -1,15 +1,23 @@
-{% extends "interfaz/base.html" %}
+{% extends "usuarios/base_acceso.html" %}
 
 {% block titulo %}Cuenta lista - Verdeazul Carbono{% endblock %}
 
-{% block contenido %}
+{% block tarjeta %}
+  <div class="acceso-exito">{% include "interfaz/iconos/check.html" %}</div>
   <h1>Cuenta lista</h1>
   {% if alta %}
-    <p>Registre este secreto en su aplicación autenticadora. Se muestra solo esta vez.</p>
-    <p>Secreto: <code>{{ secreto }}</code></p>
-    <p>Enlace de aprovisionamiento: <code>{{ uri }}</code></p>
+    <p class="acceso-sub">Registre este secreto en su aplicación autenticadora.</p>
+    <p role="status" class="acceso-nota">Se muestra solo esta vez: regístrelo antes de salir de esta página.</p>
+    <div class="campo">
+      <p class="acceso-etiqueta">Secreto</p>
+      <code class="secreto">{{ secreto }}</code>
+    </div>
+    <div class="campo">
+      <p class="acceso-etiqueta">Enlace de aprovisionamiento</p>
+      <code class="secreto secreto-uri">{{ uri }}</code>
+    </div>
   {% else %}
-    <p>La contraseña se actualizó y se cerraron las sesiones abiertas de la cuenta.</p>
+    <p class="acceso-sub">La contraseña se actualizó y se cerraron las sesiones abiertas de la cuenta.</p>
   {% endif %}
-  <p><a href="{% url 'acceso' %}">Iniciar sesión</a></p>
+  <a class="boton" href="{% url 'acceso' %}">Iniciar sesión</a>
 {% endblock %}

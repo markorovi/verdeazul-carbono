@@ -1,10 +1,11 @@
-{% extends "interfaz/base.html" %}
+{% extends "usuarios/base_acceso.html" %}
 
 {% block titulo %}Confirmar identidad - Verdeazul Carbono{% endblock %}
 
-{% block contenido %}
+{% block tarjeta %}
+  <p class="acceso-paso">Operación protegida</p>
   <h1>Confirmar identidad</h1>
-  <p>La operación exige un segundo factor reciente. Escriba el código de su aplicación autenticadora.
+  <p class="acceso-sub">La operación exige un segundo factor reciente. Escriba el código de su aplicación autenticadora.
      Después podrá revisar la operación y confirmarla; no se ejecuta sola.</p>
   {% if error %}
     <p role="alert">{{ error }}</p>
@@ -12,10 +13,13 @@
   <form method="post" action="{% url 'reautenticar' %}">
     {% csrf_token %}
     <input type="hidden" name="next" value="{{ siguiente }}">
-    <p>
-      <label for="{{ form.codigo.id_for_label }}">{{ form.codigo.label }}</label><br>
+    <div class="campo">
+      <label for="{{ form.codigo.id_for_label }}">{{ form.codigo.label }}</label>
       {{ form.codigo }}
-    </p>
-    <p><button type="submit">Confirmar</button></p>
+    </div>
+    <button type="submit" class="boton">Confirmar</button>
   </form>
+  <div class="acceso-enlaces">
+    <a href="{% url 'consola' %}">Cancelar y volver a las operaciones</a>
+  </div>
 {% endblock %}

@@ -1,16 +1,35 @@
-{% extends "interfaz/base.html" %}
+{% extends "interfaz/base_app.html" %}
 
 {% block titulo %}Operaciones - Verdeazul Carbono{% endblock %}
 
 {% block contenido %}
-  <h1>Operaciones</h1>
-  <p>Roles vigentes: {% for rol in roles %}{{ rol }}{% if not forloop.last %}, {% endif %}{% empty %}ninguno{% endfor %}</p>
+  <div class="encabezado-pagina">
+    <div>
+      <p class="sobretitulo">Panel de trabajo</p>
+      <h1>Operaciones</h1>
+      <p class="lead">Acceda a las lecturas y tareas disponibles para su cuenta.</p>
+    </div>
+    <div class="resumen-roles">
+      <span>Roles vigentes</span>
+      <strong>{% for rol in roles %}<span class="rol-codigo">{{ rol }}</span> {% empty %}ninguno{% endfor %}</strong>
+    </div>
+  </div>
   <p class="nota">La lista solo orienta: cada operación la decide el servidor al ejecutarla.</p>
 
-  <h2>Sus operaciones</h2>
-  {% include "interfaz/tabla_operaciones.html" with filas=propias %}
+  <section class="panel">
+    <h2>Sus operaciones</h2>
+    {% include "interfaz/tabla_operaciones.html" with filas=propias %}
+  </section>
 
-  <h2>Probar otras operaciones</h2>
-  <p class="nota">Las 41 operaciones de la matriz. Las que no le corresponden terminan en 403 con la regla aplicada.</p>
-  {% include "interfaz/tabla_operaciones.html" with filas=otras %}
+  <details class="matriz">
+    <summary>
+      <span>
+        <strong>Explorar toda la matriz</strong>
+        <small>Las 41 operaciones. Las que no le corresponden terminan en 403 con la regla aplicada.</small>
+      </span>
+    </summary>
+    <div class="matriz-contenido">
+      {% include "interfaz/tabla_operaciones.html" with filas=otras %}
+    </div>
+  </details>
 {% endblock %}

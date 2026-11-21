@@ -6,7 +6,8 @@
   <title>{% block titulo %}Verdeazul Carbono{% endblock %}</title>
   <link rel="stylesheet" href="{% static 'interfaz/estilo.css' %}">
 </head>
-<body>
+<body{% block atributos_cuerpo %}{% endblock %}>
+  {% block encabezado %}
   <header>
     <p class="marca">Verdeazul Carbono</p>
     {% if user.is_authenticated %}
@@ -21,6 +22,7 @@
       </nav>
     {% endif %}
   </header>
+  {% endblock %}
   <main>
     {% block contenido %}{% endblock %}
   </main>
