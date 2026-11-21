@@ -1,10 +1,12 @@
-{% extends "interfaz/base.html" %}
+{% extends "interfaz/base_app.html" %}
 
 {% block titulo %}Acceso denegado - Verdeazul Carbono{% endblock %}
 
 {% block contenido %}
   <h1>Acceso denegado</h1>
-  <p role="alert">Regla: <span class="regla">{{ regla }}</span></p>
-  <p>{{ motivo }}</p>
+  <section class="panel">
+    <p role="alert">Regla: <span class="regla">{{ regla }}</span></p>
+    <p>{{ motivo }}</p>
+  </section>
   <p><a href="{% url 'consola' %}">Volver a las operaciones</a></p>
 {% endblock %}

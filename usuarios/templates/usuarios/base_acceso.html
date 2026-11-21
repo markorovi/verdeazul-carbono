@@ -1,0 +1,30 @@
+{% extends "interfaz/base.html" %}
+
+{% block atributos_cuerpo %} class="acceso"{% endblock %}
+
+{% block encabezado %}{% endblock %}
+
+{% block contenido %}
+  <div class="acceso-pagina">
+    <section class="acceso-marca" aria-label="Verdeazul Carbono">
+      {% include "interfaz/iconos/bosque.html" %}
+      <div class="acceso-logo">
+        {% include "interfaz/iconos/arbol.html" %}
+        <p class="acceso-nombre">Verdeazul Carbono</p>
+      </div>
+      <p class="acceso-lema">Carbono medido, verificado y certificado.</p>
+      <p class="acceso-detalle">Registro de fincas, parcelas y mediciones con trazabilidad completa.</p>
+      <ul class="acceso-puntos">
+        <li><strong>Certificados firmados</strong>Cualquier persona puede comprobar que no fueron alterados.</li>
+        <li><strong>Bitácora inalterable</strong>Cada acción queda registrada en una cadena de hashes.</li>
+        <li><strong>Acceso por rol y segundo factor</strong>El servidor decide cada operación.</li>
+      </ul>
+    </section>
+
+    <section class="acceso-panel">
+      <div class="acceso-tarjeta">
+        {% block tarjeta %}{% endblock %}
+      </div>
+    </section>
+  </div>
+{% endblock %}

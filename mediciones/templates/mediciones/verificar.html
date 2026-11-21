@@ -1,58 +1,63 @@
-{% extends "interfaz/base.html" %}
+{% extends "interfaz/base_app.html" %}
 
 {% block titulo %}Verificar certificado - Verdeazul Carbono{% endblock %}
-{% block main_class %}main-narrow{% endblock %}
 
 {% block contenido %}
-  <div class="page-heading verify-heading">
+  <div class="encabezado-pagina">
     <div>
-      <div class="eyebrow">Confianza verificable</div>
+      <p class="sobretitulo">Confianza verificable</p>
       <h1>Verificar certificado</h1>
       <p class="lead">Compruebe la integridad y el origen de un certificado emitido por el sistema.</p>
     </div>
-    <div class="verify-seal" aria-hidden="true">✓</div>
+    <span class="sello" aria-hidden="true">{% include "interfaz/iconos/check.html" %}</span>
   </div>
   {% if no_disponible %}
-    <p class="alert" role="alert">La verificación no está disponible en este momento.</p>
+    <section class="panel">
+      <p role="alert">La verificación no está disponible en este momento.</p>
+    </section>
   {% else %}
-    <section class="panel verifier-panel">
-      <p class="muted">Pegue el JSON o adjunte el archivo exportado (hasta {{ limite }} bytes). Se comprueban por separado la integridad Ed25519 y el emisor frente a la <a href="{% url 'clave_publica_pagina' %}">clave pública de Verdeazul</a>.</p>
+    <p>Pegue el certificado en formato JSON o adjunte el archivo (hasta {{ limite }} bytes). Se comprueba por
+       separado la integridad (firma Ed25519 con la clave incluida en el documento) y el emisor (que esa clave
+       sea la <a href="{% url 'clave_publica_pagina' %}">clave pública de Verdeazul</a>).</p>
+    <section class="panel">
       <form method="post" action="{% url 'verificar' %}" enctype="multipart/form-data">
         {% csrf_token %}
-        <div class="form-field">
-          <label for="certificado">Documento del certificado <span class="label-hint">JSON</span></label>
-          <textarea id="certificado" name="certificado" rows="12" spellcheck="false"></textarea>
+        <div class="campo">
+          <label for="certificado">Certificado (JSON)</label>
+          <textarea id="certificado" name="certificado" rows="12" cols="80"></textarea>
         </div>
-        <div class="form-field">
+        <div class="campo">
           <label for="archivo">O adjunte el archivo</label>
           <input type="file" id="archivo" name="archivo" accept="application/json,.json">
         </div>
-        <button class="button button-primary" type="submit">Verificar certificado <span aria-hidden="true">→</span></button>
+        <button type="submit" class="boton">Verificar</button>
       </form>
     </section>
     {% if demasiado_grande %}
-      <p class="alert" role="alert">El certificado supera el tamaño permitido.</p>
+      <p role="alert">El certificado supera el tamaño permitido.</p>
     {% endif %}
     {% if resultado %}
-      <section class="result-card" aria-live="polite" data-conclusion="{{ resultado.conclusion }}">
-        <div class="eyebrow">Resultado de la comprobación</div>
-        <h2>{{ resultado.estado }}</h2>
-        <p class="conclusion">{{ mensaje }}</p>
-      {% if aviso %}
-        <p class="aviso aviso-envoltorio">{{ aviso }}</p>
-      {% endif %}
-      <div class="table-scroll"><table>
-        <tbody>
-          <tr>
-            <th>1. Integridad (firma con la clave incluida)</th>
-            <td>{% if resultado.integridad is None %}no evaluable{% elif resultado.integridad %}válida{% else %}inválida{% endif %}</td>
-          </tr>
-          <tr>
-            <th>2. Emisor (clave publicada por Verdeazul)</th>
-            <td>{% if resultado.emisor is None %}no evaluable{% elif resultado.emisor %}coincide{% else %}no coincide{% endif %}</td>
-          </tr>
-        </tbody>
-      </table></div>
+      <section class="panel">
+        <h2>Resultado</h2>
+        <p class="conclusion" data-conclusion="{{ resultado.conclusion }}">{{ mensaje }}</p>
+        <p role="status" class="estado-tecnico">Estado: {{ resultado.estado }}</p>
+        {% if aviso %}
+          <p class="aviso-envoltorio">{{ aviso }}</p>
+        {% endif %}
+        <div class="tabla-contenedor">
+          <table>
+            <tbody>
+              <tr>
+                <th scope="row">1. Integridad (firma con la clave incluida)</th>
+                <td class="{% if resultado.integridad is None %}nd{% elif resultado.integridad %}ok{% else %}mal{% endif %}">{% if resultado.integridad is None %}no evaluable{% elif resultado.integridad %}válida{% else %}inválida{% endif %}</td>
+              </tr>
+              <tr>
+                <th scope="row">2. Emisor (clave publicada por Verdeazul)</th>
+                <td class="{% if resultado.emisor is None %}nd{% elif resultado.emisor %}ok{% else %}mal{% endif %}">{% if resultado.emisor is None %}no evaluable{% elif resultado.emisor %}coincide{% else %}no coincide{% endif %}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </section>
     {% endif %}
   {% endif %}

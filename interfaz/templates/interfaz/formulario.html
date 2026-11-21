@@ -1,33 +1,35 @@
-{% extends "interfaz/base.html" %}
+{% extends "interfaz/base_app.html" %}
 
 {% block titulo %}{{ entrada.etiqueta }} - Verdeazul Carbono{% endblock %}
 
 {% block contenido %}
-  <div class="eyebrow">Operación {{ entrada.codigo }}</div>
   <h1>{{ entrada.etiqueta }}</h1>
-  {% if objeto_id %}<p class="nota">Sobre {{ entrada.objeto }} <code>{{ objeto_id }}</code></p>{% endif %}
+  <p class="nota">Operación <code>{{ entrada.codigo }}</code>{% if objeto_id %} sobre {{ entrada.objeto }} <code>{{ objeto_id }}</code>{% endif %}</p>
   {% if confirmar %}
-    <p role="status" class="aviso reauth-notice">Segundo factor confirmado. Revise los datos y confirme la operación.</p>
+    <p role="status" class="aviso">Segundo factor confirmado. Revise los datos y confirme la operación.</p>
   {% endif %}
   {% if ficha %}
-    <h2>Medición a revisar</h2>
-    {% include "interfaz/ficha.html" with ficha=ficha %}
+    <section class="panel">
+      <h2>Medición a revisar</h2>
+      {% include "interfaz/ficha.html" with ficha=ficha %}
+    </section>
   {% endif %}
-  <form method="post">
-    {% csrf_token %}
-    {% if form.non_field_errors %}
-      <ul class="errores">{% for error in form.non_field_errors %}<li>{{ error }}</li>{% endfor %}</ul>
-    {% endif %}
-    {% for campo in form.hidden_fields %}{{ campo }}{% endfor %}
-    {% for campo in form.visible_fields %}
-      <div class="form-field">
-        <label for="{{ campo.id_for_label }}">{{ campo.label }}</label>
-        {{ campo }}
-        {% for error in campo.errors %}<span class="error">{{ error }}</span>{% endfor %}
-        {% if campo.help_text %}<small class="help-text">{{ campo.help_text }}</small>{% endif %}
-      </div>
-    {% endfor %}
-    <button class="button button-primary" type="submit">{% if confirmar %}Confirmar operación{% else %}Ejecutar operación{% endif %} <span aria-hidden="true">→</span></button>
-  </form>
-  <p class="back-link"><a href="{% url 'consola' %}">← Volver a las operaciones</a></p>
+  <section class="panel">
+    <form method="post">
+      {% csrf_token %}
+      {% if form.non_field_errors %}
+        <ul class="errores">{% for error in form.non_field_errors %}<li>{{ error }}</li>{% endfor %}</ul>
+      {% endif %}
+      {% for campo in form.hidden_fields %}{{ campo }}{% endfor %}
+      {% for campo in form.visible_fields %}
+        <div class="campo">
+          <label for="{{ campo.id_for_label }}">{{ campo.label }}</label>
+          {{ campo }}
+          {% for error in campo.errors %}<span class="error">{{ error }}</span>{% endfor %}
+        </div>
+      {% endfor %}
+      <button type="submit" class="boton">{% if confirmar %}Confirmar{% else %}Ejecutar{% endif %}</button>
+    </form>
+  </section>
+  <p><a href="{% url 'consola' %}">Volver a las operaciones</a></p>
 {% endblock %}

@@ -1,26 +1,34 @@
-{% extends "interfaz/base.html" %}
+{% extends "interfaz/base_app.html" %}
 
 {% block titulo %}Operaciones - Verdeazul Carbono{% endblock %}
 
 {% block contenido %}
-  <div class="page-heading">
+  <div class="encabezado-pagina">
     <div>
-      <div class="eyebrow">Panel de trabajo</div>
+      <p class="sobretitulo">Panel de trabajo</p>
       <h1>Operaciones</h1>
       <p class="lead">Acceda a las lecturas y tareas disponibles para su cuenta.</p>
     </div>
-    <div class="role-summary"><span class="muted">Roles vigentes</span><strong>{% for rol in roles %}{{ rol }}{% if not forloop.last %}, {% endif %}{% empty %}Ninguno{% endfor %}</strong></div>
+    <div class="resumen-roles">
+      <span>Roles vigentes</span>
+      <strong>{% for rol in roles %}<span class="rol-codigo">{{ rol }}</span> {% empty %}ninguno{% endfor %}</strong>
+    </div>
   </div>
-  <p class="nota"><span class="status-dot"></span>El servidor comprueba los permisos al abrir cada operación.</p>
+  <p class="nota">La lista solo orienta: cada operación la decide el servidor al ejecutarla.</p>
 
-  <section class="console-section">
-    <div class="section-heading"><div class="eyebrow">Acceso recomendado</div><h2>Sus operaciones</h2></div>
+  <section class="panel">
+    <h2>Sus operaciones</h2>
     {% include "interfaz/tabla_operaciones.html" with filas=propias %}
   </section>
 
-  <details class="all-operations">
-    <summary><span><strong>Explorar toda la matriz</strong><small>El acceso a cada operación se evalúa individualmente.</small></span><span aria-hidden="true">＋</span></summary>
-    <div class="all-operations-content">
+  <details class="matriz">
+    <summary>
+      <span>
+        <strong>Explorar toda la matriz</strong>
+        <small>Las 41 operaciones. Las que no le corresponden terminan en 403 con la regla aplicada.</small>
+      </span>
+    </summary>
+    <div class="matriz-contenido">
       {% include "interfaz/tabla_operaciones.html" with filas=otras %}
     </div>
   </details>

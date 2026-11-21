@@ -1,15 +1,15 @@
-{% extends "interfaz/base.html" %}
+{% extends "interfaz/base_app.html" %}
 
 {% block titulo %}Mi cuenta - Verdeazul Carbono{% endblock %}
 
 {% block contenido %}
-  <div class="page-heading">
+  <div class="encabezado-pagina">
     <div>
-      <div class="eyebrow">Espacio de trabajo</div>
+      <p class="sobretitulo">Espacio de trabajo</p>
       <h1>Mi cuenta</h1>
       <p class="lead">Su acceso y responsabilidades en Verdeazul Carbono.</p>
     </div>
-    <a class="button button-primary" href="{% url 'consola' %}">Ir a operaciones <span aria-hidden="true">→</span></a>
+    <a class="boton" href="{% url 'consola' %}">Ir a las operaciones</a>
   </div>
   {% if avisos %}
     <section role="alert" class="avisos-titular">
@@ -20,30 +20,30 @@
       <p>Si no los reconoce, avise a la administración.</p>
     </section>
   {% endif %}
-  <section class="account-grid" aria-label="Resumen de cuenta">
-    <article class="panel profile-panel">
-      <div class="panel-icon" aria-hidden="true">{{ user.nombre|first|upper }}</div>
-      <div class="eyebrow">Cuenta activa</div>
-      <h2>{{ user.nombre }}</h2>
-      <p class="muted">{{ user.correo }}</p>
-      <div class="divider"></div>
+  <div class="cuenta-grid">
+    <section class="panel" aria-label="Resumen de la cuenta">
+      <span class="perfil-inicial" aria-hidden="true">{{ user.nombre|slice:":1"|upper }}</span>
+      <p class="sobretitulo">Cuenta activa</p>
+      <h2 class="perfil-nombre">{{ user.nombre }}</h2>
+      <p class="perfil-correo">{{ user.correo }}</p>
+      <hr class="separador">
       <h3>Roles vigentes</h3>
       {% if roles %}
-        <ul class="role-list">
+        <ul class="roles">
           {% for codigo, nombre in roles %}
-            <li><span class="role-code">{{ codigo }}</span><span>{{ nombre }}</span></li>
+            <li><span class="rol-codigo">{{ codigo }}</span> {{ nombre }}</li>
           {% endfor %}
         </ul>
       {% else %}
-        <p class="muted">No tiene roles vigentes asignados.</p>
+        <p>No tiene roles vigentes.</p>
       {% endif %}
-    </article>
-    <article class="panel feature-panel">
-      <div class="feature-kicker">Herramienta pública</div>
+    </section>
+    <section class="panel cuenta-verificar">
+      <p class="sobretitulo">Herramienta pública</p>
       <h2>Verificación de certificados</h2>
-      <p class="muted">Compruebe la integridad de un certificado y que fue firmado por Verdeazul.</p>
-      <a class="text-link" href="{% url 'verificar' %}">Ir a verificar <span aria-hidden="true">→</span></a>
-      <div class="feature-art" aria-hidden="true"><span>✓</span></div>
-    </article>
-  </section>
+      <p>Compruebe la integridad de un certificado y que fue firmado por Verdeazul.</p>
+      <p><a href="{% url 'verificar' %}">Ir a verificar</a></p>
+      <span class="cuenta-sello" aria-hidden="true">{% include "interfaz/iconos/check.html" %}</span>
+    </section>
+  </div>
 {% endblock %}

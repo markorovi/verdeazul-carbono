@@ -1,22 +1,21 @@
-{% extends "interfaz/base.html" %}
+{% extends "interfaz/base_app.html" %}
 
 {% block titulo %}{{ titulo }} - Verdeazul Carbono{% endblock %}
 
 {% block contenido %}
-  <div class="eyebrow">Espacio de trabajo</div>
   <h1>{{ titulo }}</h1>
-  <p class="nota"><span class="status-dot"></span>Solo se muestran los registros autorizados para su cuenta.</p>
+  <p class="nota">Solo se muestran las filas que el servidor autoriza; cada consulta queda registrada.</p>
   {% for fila in filas %}
-    <section class="fila record-card">
+    <section class="fila panel">
       {% include "interfaz/ficha.html" with ficha=fila.ficha %}
-      {% if fila.ruta %}<p class="record-action"><a class="text-link" href="{{ fila.ruta }}">Ver detalle <span aria-hidden="true">→</span></a></p>{% endif %}
+      {% if fila.ruta %}<p><a class="boton-chico" href="{{ fila.ruta }}">Ver detalle</a></p>{% endif %}
     </section>
   {% empty %}
-    <p>No hay filas para mostrar.</p>
+    <p class="panel">No hay filas para mostrar.</p>
   {% endfor %}
-  <nav class="pagination" aria-label="Paginación">
-    {% if anterior %}<a href="?pagina={{ anterior }}&amp;tamano={{ tamano }}">Anterior</a>{% endif %}
-    Página {{ pagina }}
-    {% if siguiente %}<a href="?pagina={{ siguiente }}&amp;tamano={{ tamano }}">Siguiente</a>{% endif %}
+  <nav class="paginacion" aria-label="Paginación">
+    {% if anterior %}<a class="boton-chico" href="?pagina={{ anterior }}&amp;tamano={{ tamano }}">Anterior</a>{% endif %}
+    <span>Página {{ pagina }}</span>
+    {% if siguiente %}<a class="boton-chico" href="?pagina={{ siguiente }}&amp;tamano={{ tamano }}">Siguiente</a>{% endif %}
   </nav>
 {% endblock %}
